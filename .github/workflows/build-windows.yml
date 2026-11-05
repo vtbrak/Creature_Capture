@@ -1,0 +1,77 @@
+name: Build Windows app
+
+on:
+  push:
+    branches: ["**"]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write  # needed to attach the .zip to a GitHub Release on tags
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements*.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+
+      - name: Unit tests
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: python -m pytest -q
+
+      - name: Build CreatureCapture.exe
+        run: >
+          pyinstaller --noconfirm --clean --windowed
+          --name CreatureCapture
+          --collect-all imageio_ffmpeg
+          --exclude-module tkinter
+          --exclude-module PySide6.QtWebEngineCore
+          --exclude-module PySide6.QtWebEngineWidgets
+          --exclude-module PySide6.Qt3DCore
+          --exclude-module PySide6.QtQuick
+          --exclude-module PySide6.QtQml
+          run_creature_capture.py
+
+      - name: Self-test the packaged app (records from test-pattern cameras)
+        shell: pwsh
+        run: |
+          $env:CREATURE_CAPTURE_HOME = "$env:RUNNER_TEMP\cc_home"
+          $p = Start-Process -FilePath "dist\CreatureCapture\CreatureCapture.exe" -ArgumentList "--self-test" -Wait -PassThru
+          Get-Content "$env:CREATURE_CAPTURE_HOME\selftest.txt"
+          if ($p.ExitCode -ne 0) { throw "Self-test failed (exit code $($p.ExitCode))" }
+
+      - name: Zip
+        id: zip
+        shell: pwsh
+        run: |
+          $version = python -c "import creature_capture; print(creature_capture.__version__)"
+          $sha = "${{ github.sha }}".Substring(0, 7)
+          $name = "CreatureCapture-$version-$sha-windows.zip"
+          Copy-Item README.md dist\CreatureCapture\README.md
+          Compress-Archive -Path dist\CreatureCapture -DestinationPath $name
+          "name=$name" >> $env:GITHUB_OUTPUT
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CreatureCapture-windows
+          path: ${{ steps.zip.outputs.name }}
+          retention-days: 30
+
+      - name: Attach to GitHub Release (tags only)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ steps.zip.outputs.name }}

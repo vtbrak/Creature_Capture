@@ -1,0 +1,192 @@
+# Creature Capture
+
+Synchronized multi-camera video acquisition for animal behavior experiments
+(open field, elevated plus maze, puzzle box, and any experiment you add).
+
+* Live feeds of every camera used by the selected experiment
+* One **Start** for all cameras: they all start on the same frame and stop on the same frame
+* Greyscale **H.264 MP4, 800 × 600, exactly 20 fps**, encoded on the NVIDIA GPU (NVENC)
+* File names from the start time: `2026-11-05_14-32-07_Arena1_Overhead.mp4`
+* Fixed output location per experiment: `<base folder>\OpenField\2026-11-05\…`
+* Animal and session information saved as CSV (and JSON) next to the videos, plus a master log per experiment
+* Camera controls saved per camera and per experiment, re-applied every time
+* Crash-safe recording: a crash or power cut keeps everything recorded up to that point
+* Dropped camera frames are replaced so timing stays correct, and they are counted, marked and reported
+
+---
+
+## Installing on the recording PC
+
+1. On GitHub, open **Actions → Build Windows app**, click the latest green run and
+   download **CreatureCapture-windows** at the bottom of the page.
+   (For tagged releases the same zip is attached under **Releases**.)
+2. Unzip it anywhere, e.g. `C:\CreatureCapture\`.
+3. Run `CreatureCapture\CreatureCapture.exe`. The first time, Windows SmartScreen says
+   *"Windows protected your PC"*: click **More info → Run anyway** (the app is not code-signed).
+
+Settings are stored in `%APPDATA%\CreatureCapture\`, **not** in the app folder, so
+installing a newer build keeps all camera assignments and settings.
+
+### Check the install (optional)
+
+Open a Command Prompt in the app folder and run:
+
+```bat
+CreatureCapture.exe --self-test
+```
+
+then open `%APPDATA%\CreatureCapture\selftest.txt`. It lists the cameras found,
+whether the NVIDIA encoder works, and the result of a 3-second test recording.
+
+---
+
+## First-time setup (Settings tab)
+
+1. **Base folder**: where all videos go, e.g. `D:\BehaviorVideos`. The app creates
+   `OpenField`, `ElevatedPlus`, `PuzzleBox` (one folder per experiment) inside it.
+2. **Cameras**: for each camera position (Arena 1 Overhead, Arena 1 Horizontal,
+   Arena 2 Overhead, Arena 2 Horizontal, Camera 5) choose the physical camera from the list.
+   Select a row to see its live feed and confirm it is the right camera.
+   Cameras are remembered by the USB port they are plugged into, so **keep every camera in the same port**.
+   Click **Refresh camera list** after plugging cameras in.
+3. **Camera controls**: on the Record tab, pick an experiment and click **Camera controls…**
+   above a feed. Settings are saved for that camera *in that experiment* (so Camera 5 has
+   separate settings for Elevated Plus and Puzzle Box). Untick *Apply* to leave a control at the
+   camera's own value. Keep **Auto exposure off** and **exposure at -5 or lower** (1/32 s or shorter):
+   a longer exposure cannot deliver 20 fps. *Open camera driver dialog…* gives access to the
+   camera's own settings window, including anti-flicker (power-line frequency).
+4. **Lock settings**: tick the box at the top of Settings. While it is ticked nothing in
+   Settings, and no camera controls, can be changed; untick it deliberately to make a change.
+
+## Recording (Record tab)
+
+1. Choose the **Experiment**. The app opens that experiment's cameras.
+2. Choose the **Length** from the list or type any number of minutes.
+3. Fill in **Experimenter** (required) and each arena's **Animal ID** (required) and any other
+   fields. If an animal list is loaded, pick the animal and the rest fills in.
+4. Open field: untick an arena (its box title) if only one arena is in use. A single camera
+   can be left out with its **Record this camera** box.
+5. Press **Start recording**. Recording begins immediately, so you can record placing the animal.
+   It stops automatically at the set length, or press **Stop** (the trial is then logged as *stopped early*).
+6. When saving finishes, a summary appears. If any camera dropped frames it is shown as a warning.
+
+After a trial the Animal ID and Notes are cleared, ready for the next animal; other fields are kept.
+
+## What gets saved
+
+For an open field trial started at 14:32:07 on 5 Nov 2026 (with date subfolders on):
+
+```
+D:\BehaviorVideos\OpenField\
+├── OpenField_log.csv                          ← master log: one row per animal per trial
+└── 2026-11-05\
+    ├── 2026-11-05_14-32-07_Arena1_Overhead.mp4
+    ├── 2026-11-05_14-32-07_Arena1_Horizontal.mp4
+    ├── 2026-11-05_14-32-07_Arena2_Overhead.mp4
+    ├── 2026-11-05_14-32-07_Arena2_Horizontal.mp4
+    ├── 2026-11-05_14-32-07_Arena1_info.csv    ← animal + session info, length set/actual, repeated frames
+    ├── 2026-11-05_14-32-07_Arena1_info.json   ← same plus camera settings used, per-frame details
+    ├── 2026-11-05_14-32-07_Arena2_info.csv
+    ├── 2026-11-05_14-32-07_Arena2_info.json
+    └── 2026-11-05_14-32-07_<camera>_frames.csv ← per-frame timestamps for each camera
+```
+
+Log columns: date, start_time, assay, arena, experimenter, cohort, animal_id, sex, strain, dob,
+treatment, trial_day, notes, duration_set_min, duration_actual_s, stopped_early, frames,
+repeated_frames, videos, encoder, app_version.
+
+If the master log is open in Excel when a trial finishes, the row is saved to
+`OpenField_log_pending.csv` and merged into the log automatically after the next trial.
+
+### Text in the video
+
+The top-left corner of every frame shows `00:03:27.45  F004149  20 fps`: elapsed time,
+frame number and frame rate. A `*` is added on repeated frames. Text size and contents
+can be changed in Settings. When cropping for ezTrack/DeepLabCut, the text occupies only
+a thin strip (about 20 px) at the top-left.
+
+## How synchronization works
+
+Every camera is read continuously in its own thread. A single clock ticks exactly 20 times per
+second; at each tick it takes the newest frame from every camera in the trial. So all videos start
+and stop on the same tick, have the same number of frames, and frame *N* of every video was
+captured within about one camera frame (≤ 33 ms at the default 30 fps capture rate) of the same moment.
+
+If a camera has not delivered a new frame since the last tick, the previous frame is written again
+so the video stays in real time. These repeated frames are counted in the logs, listed by frame
+number in `_info.json` and `_frames.csv`, and marked with `*` in the video.
+
+## Crash safety
+
+While recording, each video is written as `…​.recording.mp4` (fragmented MP4, playable up to the
+last second). When the trial ends it is converted, without re-encoding, to a standard `.mp4`.
+If the app or PC crashes, the next time Creature Capture starts it offers to convert any leftover
+`.recording.mp4` files.
+
+## Adding experiments
+
+**Settings → Experiments → New…**: give it a name, an output folder, length choices, and one row per
+camera (arena name, camera position, file label). Rows with the same arena name share one animal.
+
+## Animal list
+
+**Settings → Animal list → Import CSV…**: a CSV with a header row. Recognised columns (any case):
+`animal_id`/`ID`, `sex`, `strain`/`genotype`, `dob`/`date of birth`, `treatment`/`group`.
+Use **Save blank template…** for a ready-made file.
+
+---
+
+## Running from source with Anaconda (Mac or PC)
+
+Requires Anaconda, Miniconda or Miniforge. The scripts find conda automatically by
+locating its `etc/profile.d/conda.sh` (Mac) or `condabin\conda.bat` (Windows) in the usual
+install locations. If yours is somewhere unusual, set `CONDA_BASE` to the conda folder first.
+
+| | Mac | Windows |
+|---|---|---|
+| Install / update the `creature_capture` environment (from `environment.yml`), then run the self-test | `install_mac.command` | `install_windows.bat` |
+| Start the program | `run_mac.command` | `run_windows.bat` |
+
+Double-click the file. On a Mac, the first time macOS may refuse to open a downloaded
+`.command`: right-click it → **Open** → **Open**. If it opens in a text editor instead, run it from
+Terminal with `bash install_mac.command`. macOS also asks for permission for Terminal to use the
+camera the first time.
+
+Running the install script again updates the environment after you download a newer version.
+
+## Development
+
+```bash
+conda env create -f environment.yml     # or: python3 -m venv .venv && pip install -r requirements-dev.txt
+conda activate creature_capture
+python run_creature_capture.py
+```
+
+Without real cameras, set **Settings → Testing without cameras → Test-pattern cameras** to 5 and
+assign them to the positions. On a Mac, the built-in camera also appears in the list (camera controls
+are mostly not supported on macOS; they work on Windows).
+
+Run the tests:
+
+```bash
+QT_QPA_PLATFORM=offscreen python -m pytest -q
+```
+
+### Builds
+
+`.github/workflows/build-windows.yml` runs on every push: it runs the tests, builds
+`CreatureCapture.exe` with PyInstaller on Windows, runs `--self-test` on the packaged app and
+uploads the zip as an artifact. Pushing a tag like `v0.1.0` also attaches the zip to a GitHub Release.
+
+### Code layout
+
+| File | Purpose |
+|---|---|
+| `creature_capture/config.py` | Settings file, default experiments and camera positions |
+| `creature_capture/devices.py` | Camera discovery (DirectShow device paths via FFmpeg) |
+| `creature_capture/camera.py` | Capture threads, camera controls |
+| `creature_capture/recorder.py` | Shared 20 fps clock, encoders, overlay, crash-safe output |
+| `creature_capture/records.py` | Animal info, per-trial CSV/JSON, master log |
+| `creature_capture/ffmpeg_util.py` | FFmpeg location, NVENC detection, remux/recovery |
+| `creature_capture/ui/` | Qt interface (Record tab, Settings tab, dialogs) |
+| `creature_capture/selftest.py` | `--self-test` end-to-end check |
