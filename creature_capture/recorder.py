@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import csv
 import queue
+import re
 import subprocess
 import threading
 import time
@@ -42,6 +43,28 @@ import numpy as np
 from creature_capture import ffmpeg_util
 from creature_capture.camera import CameraWorker
 from creature_capture.config import OUTPUT_FPS, OUTPUT_HEIGHT, OUTPUT_WIDTH
+
+
+def name_slug(name: str, default: str = "x") -> str:
+    """Arena or camera label as used in file names and info files: letters,
+    digits and "-" only (metadata standard: no spaces or "_", so names split
+    reliably)."""
+    return re.sub(r"[^A-Za-z0-9-]+", "-", name).strip("-") or default
+
+
+def arena_slug(name: str) -> str:
+    return name_slug(name, "Arena")
+
+
+def camera_label(label: str, arena: str) -> str:
+    """The camera part of a job label. Labels are unique within an experiment,
+    so some include their arena ("Arena1_Overhead"); strip it so the video is
+    named <date>_<time>_<arena>_<camera label>.mp4 without repeating it."""
+    for prefix in (arena + "_", arena_slug(arena) + "_"):
+        if label.startswith(prefix) and len(label) > len(prefix):
+            label = label[len(prefix):]
+            break
+    return name_slug(label, "Camera")
 
 
 def format_elapsed(seconds: float) -> str:
@@ -156,7 +179,8 @@ class _VideoWriter:
                 self.error = "Encoder stopped unexpectedly (see .ffmpeg.log)"
                 break
             self._ts.writerow([idx, f"{idx / OUTPUT_FPS:.3f}", f"{tick_t:.4f}",
-                               f"{cam_t:.4f}" if cam_t is not None else "", seq, int(repeated)])
+                               f"{cam_t:.4f}" if cam_t is not None else "", seq,
+                               "true" if repeated else "false"])
         # Drain anything left so put() never blocks after an error.
         while not self.q.empty():
             try:
@@ -232,14 +256,15 @@ class RecordingSession:
         self.running = False
 
     # ----------------------------------------------------------------- api
-    def file_base(self, label: str) -> Path:
-        return self.out_dir / f"{self.stamp}_{label}"
+    def file_base(self, job: CameraJob) -> Path:
+        """<date>_<time>_<arena>_<camera label>, per the metadata standard."""
+        return self.out_dir / f"{self.stamp}_{arena_slug(job.arena)}_{camera_label(job.label, job.arena)}"
 
     def start(self) -> None:
         self.out_dir.mkdir(parents=True, exist_ok=True)
         for job in self.jobs:
             self._writers.append(
-                _VideoWriter(self.file_base(job.label), self.encoder, self.quality, self.overlay)
+                _VideoWriter(self.file_base(job), self.encoder, self.quality, self.overlay)
             )
         self.running = True
         self._thread = threading.Thread(target=self._run, daemon=True, name="rec-clock")
@@ -291,7 +316,7 @@ class RecordingSession:
         last_frame: dict[str, np.ndarray | None] = {j.label: None for j in self.jobs}
         t0 = time.perf_counter() + 0.05
         _sleep_until(t0)
-        self.start_wall = datetime.now()
+        self.start_wall = datetime.now().astimezone()  # local time with UTC offset
         k = 0
         while k < self.total_frames and not self._stop_event.is_set():
             target = t0 + k * period

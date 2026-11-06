@@ -88,26 +88,53 @@ D:\BehaviorVideos\OpenField\
     ├── 2026-11-05_14-32-07_Arena1_info.json   ← same plus exact start time and per-camera details
     ├── 2026-11-05_14-32-07_Arena2_info.csv
     ├── 2026-11-05_14-32-07_Arena2_info.json
-    └── 2026-11-05_14-32-07_<camera>_frames.csv ← per-frame timestamps for each camera
+    └── 2026-11-05_14-32-07_<arena>_<camera>_frames.csv ← per-frame timestamps for each camera
 ```
 
-Log columns: date, start_time, assay, arena, experimenter, cohort, animal_id, sex, strain, dob,
-treatment, trial_day, notes, duration_set_min, duration_actual_s, stopped_early, frames,
-repeated_frames, videos, encoder, app_version.
+Every video is named `<date>_<time>_<arena>_<camera label>.mp4`, so an Elevated Plus trial
+gives `2026-11-05_14-32-07_EPM_Overhead.mp4`. Arena names and camera labels use only letters,
+digits and `-`.
 
-The `_info.json` has all of those fields, plus:
+Log and `_info.csv` columns (for people; Track Tamer reads only the JSON): date, start_time,
+assay, assay_variant, phase, arena, experimenter, cohort, animal_id, sex, strain, dob, treatment,
+trial_day, session_number, notes, duration_set_min, duration_actual_s, stopped_early, frames,
+repeated_frames, videos, encoder, app_version. A master log from an older version gets the new
+columns added automatically the first time a trial is logged.
 
-* `start_wall_clock`: start time to the millisecond, e.g. `2026-11-05T14:32:07.412`
-* `cameras`: one entry per camera in that arena with `label`, `slot`, `video`, `timestamps_csv`,
-  `frames`, `verified_frames_in_file` (frames counted in the finished MP4), `repeated_frames`,
-  `repeated_frame_indices` (frame numbers of the repeats), `error`, and `camera_settings`.
-  `camera_settings` lists every camera control as actually used in the trial (auto_exposure,
-  exposure, gain, brightness, contrast, gamma, sharpness, auto_wb, wb_temperature), each with
-  `apply` and `value`, including built-in defaults for controls never changed. `apply: false`
-  means the camera was left at its own value.
+### The info file (`_info.json`)
 
-Per-frame timing is in each camera's `_frames.csv`, one row per video frame: `frame`,
-`video_time_s`, `tick_time_s`, `camera_frame_time_s`, `camera_frame_seq`, `repeated`.
+The `_info.json` follows the **Track Tamer video metadata standard, schema 1 (draft)**
+([metadata_standard.md](metadata_standard.md)), so Track Tamer can fill in the trial details
+by itself. In short:
+
+* `schema_version` (`1`), `app_name`, `app_version`, and `date` and `start_time` from this
+  computer's clock.
+* `assay`: the experiment's **Assay type** (Settings → Experiments), written exactly as in the
+  standard: `Open Field`, `Elevated Plus Maze`, `Object Recognition`, … An experiment set to
+  *Other* (e.g. Puzzle Box) writes its own name. `assay_variant` and `phase` come from that
+  assay's own lists and are chosen on the Record tab; the choices appear only for assays that
+  have them (e.g. Object Recognition: variant *Novel Object Recognition* or *Spatial Object
+  Recognition*, phase *Habituation*, *Training* or *Test*).
+* `arena`, `experimenter`, `cohort` (shown as *Cohort / litter*), `animal_id`, `sex` (`F`, `M`,
+  or `U` when not recorded), `strain`, `dob`, `treatment`, `trial_day` (day of a multi-day
+  trial), `session_number` (which session that day), `notes`, `duration_set_min`,
+  `duration_actual_s` and `stopped_early` (`true`/`false`). Blank fields are left out.
+* Object Recognition only: `objects`, one per object with `name` (`object 1`, …), `identity`,
+  `kind` (`Familiar`, `Novel`, `Moved`) and `position`, entered on the Record tab per arena.
+* `cameras`: one entry per camera in that arena with `label`, `camera_position` (the camera
+  position from Settings, e.g. `Camera5`), `camera_settings`, `video`, `timestamps_csv`,
+  `fps_set`, `fps_measured`, `width_px`, `height_px`, `frames`, `verified_frames_in_file`
+  (frames counted in the finished MP4), `repeated_frames`, `repeated_frame_indices` (from 0,
+  like the video), and `error` (only if there was one). `camera_settings` lists every setting
+  used, changed or not: the video `encoder` plus each camera control (auto_exposure, exposure,
+  gain, brightness, contrast, gamma, sharpness, auto_wb, wb_temperature) with `apply` and
+  `value`. `apply: false` means the camera was left at its own value.
+* Creature Capture's own fields are in a `creature_capture` object: `experiment` (the
+  experiment's name) and `gpu`.
+
+The frame times in each camera's `_frames.csv` are the record of timing, one row per video frame: `frame` (from 0),
+`video_time_s`, `tick_time_s`, `camera_frame_time_s`, `camera_frame_seq`, `repeated`
+(`true`/`false`).
 
 If the master log is open in Excel when a trial finishes, the row is saved to
 `OpenField_log_pending.csv` and merged into the log automatically after the next trial.
@@ -139,8 +166,10 @@ If the app or PC crashes, the next time Creature Capture starts it offers to con
 
 ## Adding experiments
 
-**Settings → Experiments → New…**: give it a name, an output folder, length choices, and one row per
-camera (arena name, camera position, file label). Rows with the same arena name share one animal.
+**Settings → Experiments → New…**: give it a name, an **assay type** (from the Track Tamer list,
+or *Other*), an output folder, length choices, and one row per camera (arena name, camera
+position, camera label). Rows with the same arena name share one animal. Arena names and camera
+labels may use only letters, digits and `-`.
 
 ## Animal list
 

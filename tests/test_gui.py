@@ -28,6 +28,10 @@ def test_main_window_with_sim_cameras(app, tmp_path):
     sim_ids = [f"sim:{i}" for i in range(5)]
     for slot, sid in zip(s.slots, sim_ids):
         slot["device"] = {"id": sid, "name": sid}
+    s.assays.append({"name": "Novel Object", "standard_assay": "Object Recognition",
+                     "folder": "NovelObject", "durations": [10], "default_duration": 10,
+                     "arenas": [{"name": "NOR1", "cameras": [{"slot": "Camera5",
+                                                              "label": "Overhead"}]}]})
     s.save()
 
     win = MainWindow(s)
@@ -47,6 +51,21 @@ def test_main_window_with_sim_cameras(app, tmp_path):
     rec.assay_combo.setCurrentText("Elevated Plus")
     assert list(rec.views) == ["Overhead"]
     assert list(rec.forms) == ["EPM"]
+    assert not rec.variant.isVisibleTo(rec) and not rec.phase.isVisibleTo(rec)
+    assert rec.forms["EPM"].objects is None
+
+    rec.assay_combo.setCurrentText("Novel Object")
+    assert rec.variant.isVisibleTo(rec) and rec.phase.isVisibleTo(rec)
+    assert [rec.variant.itemText(i) for i in range(rec.variant.count())] == [
+        "", "Novel Object Recognition", "Spatial Object Recognition"]
+    assert [rec.phase.itemText(i) for i in range(rec.phase.count())] == [
+        "", "Habituation", "Training", "Test"]
+    form = rec.forms["NOR1"]
+    assert form.objects is not None and form.objects.rowCount() == 2
+    form.objects.item(0, 0).setText("glass bottle")
+    form.objects.cellWidget(0, 1).setCurrentText("Novel")
+    assert form.values()["objects"] == [
+        {"identity": "glass bottle", "kind": "Novel", "position": ""}]
 
     win.tabs.setCurrentIndex(1)
     app.processEvents()
@@ -54,3 +73,28 @@ def test_main_window_with_sim_cameras(app, tmp_path):
     app.processEvents()
     win.cameras.shutdown()
     win.close()
+
+
+def test_assay_editor_labels_and_names(app, tmp_path, monkeypatch):
+    from PySide6.QtWidgets import QMessageBox, QTableWidgetItem
+
+    from creature_capture.config import Settings
+    from creature_capture.ui.assay_editor import AssayEditor
+
+    warnings = []
+    monkeypatch.setattr(QMessageBox, "warning", lambda *a: warnings.append(a[2]))
+    s = Settings.load(tmp_path / "s.json")
+    ed = AssayEditor(s, s.assay("Open Field"))
+    assert ed.table.item(0, 2).text() == "Overhead"  # shown without the arena
+    assert ed.std_assay.currentData() == "Open Field"
+    ed.accept()
+    assert not warnings
+    cams = [c["label"] for a in ed.result_assay["arenas"] for c in a["cameras"]]
+    assert cams == ["Arena1_Overhead", "Arena1_Horizontal", "Arena2_Overhead", "Arena2_Horizontal"]
+    assert ed.result_assay["standard_assay"] == "Open Field"
+
+    ed = AssayEditor(s, s.assay("Elevated Plus"))
+    ed.table.setItem(0, 2, QTableWidgetItem("Top_view"))
+    ed.accept()
+    assert warnings and "only letters, digits and -" in warnings[-1]
+    assert ed.result_assay is None

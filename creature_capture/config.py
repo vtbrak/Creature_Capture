@@ -59,6 +59,48 @@ def default_base_path() -> str:
     return str(Path.home() / "BehaviorVideos")
 
 
+# Assay names from the Track Tamer metadata standard (metadata_standard.md,
+# section 3), each with its fixed lists of variants and phases. The info
+# JSON's "assay" must be exactly one of these names for Track Tamer to set the
+# test type; "assay_variant" and "phase" come from that assay's lists.
+STANDARD_ASSAYS: dict[str, dict[str, list[str]]] = {
+    "Elevated Plus Maze": {"variants": [], "phases": []},
+    "Open Field": {"variants": [], "phases": []},
+    "Object Recognition": {"variants": ["Novel Object Recognition", "Spatial Object Recognition"],
+                           "phases": ["Habituation", "Training", "Test"]},
+    "Acoustic Startle Response": {"variants": ["Prepulse Inhibition", "Startle Habituation"],
+                                  "phases": []},
+    "Conditioned Place Preference": {"variants": [],
+                                     "phases": ["Pretest", "Conditioning", "Test"]},
+    "Fear Conditioning": {"variants": [], "phases": ["Training", "Context Test", "Cue Test"]},
+}
+OBJECT_KINDS = ["Familiar", "Novel", "Moved"]
+
+
+def assay_variants(std: str) -> list[str]:
+    return STANDARD_ASSAYS.get(std, {}).get("variants", [])
+
+
+def assay_phases(std: str) -> list[str]:
+    return STANDARD_ASSAYS.get(std, {}).get("phases", [])
+
+
+# Older experiment names that map to a standard assay.
+_ASSAY_ALIASES = {"elevated plus": "Elevated Plus Maze", "epm": "Elevated Plus Maze"}
+
+
+def standard_assay(assay: dict) -> str:
+    """The standard assay name for an experiment, or "" if it isn't one of
+    them (then the experiment's own name is written and Track Tamer asks)."""
+    if "standard_assay" in assay:
+        return assay["standard_assay"] or ""
+    name = assay.get("name", "").strip().lower()
+    for std in STANDARD_ASSAYS:
+        if std.lower() == name:
+            return std
+    return _ASSAY_ALIASES.get(name, "")
+
+
 DEFAULT_SLOTS = [
     {"id": "Arena1_Overhead", "name": "Arena 1 Overhead", "device": None},
     {"id": "Arena1_Horizontal", "name": "Arena 1 Horizontal", "device": None},
@@ -70,6 +112,7 @@ DEFAULT_SLOTS = [
 DEFAULT_ASSAYS = [
     {
         "name": "Open Field",
+        "standard_assay": "Open Field",
         "folder": "OpenField",
         "durations": [5, 10, 15, 20, 30, 60],
         "default_duration": 10,
@@ -92,6 +135,7 @@ DEFAULT_ASSAYS = [
     },
     {
         "name": "Elevated Plus",
+        "standard_assay": "Elevated Plus Maze",
         "folder": "ElevatedPlus",
         "durations": [5, 10, 15],
         "default_duration": 5,
@@ -101,6 +145,7 @@ DEFAULT_ASSAYS = [
     },
     {
         "name": "Puzzle Box",
+        "standard_assay": "",  # not in the standard: written as "Puzzle Box"
         "folder": "PuzzleBox",
         "durations": [5, 10, 15, 20, 30],
         "default_duration": 10,

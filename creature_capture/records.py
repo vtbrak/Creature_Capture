@@ -4,10 +4,16 @@ from __future__ import annotations
 
 import csv
 import json
+import os
+import tempfile
 from pathlib import Path
 
 from creature_capture import __version__
 from creature_capture.camera import effective_controls
+from creature_capture.config import (
+    OUTPUT_FPS, OUTPUT_HEIGHT, OUTPUT_WIDTH, assay_phases, assay_variants, standard_assay,
+)
+from creature_capture.recorder import arena_slug, camera_label
 
 ANIMAL_FIELDS = [
     ("animal_id", "Animal ID", True),
@@ -15,7 +21,8 @@ ANIMAL_FIELDS = [
     ("strain", "Strain / genotype", False),
     ("dob", "DOB", False),
     ("treatment", "Treatment / group", False),
-    ("trial_day", "Trial / day", False),
+    ("trial_day", "Trial day", False),
+    ("session_number", "Session # that day", False),
     ("notes", "Notes", False),
 ]
 SESSION_FIELDS = [
@@ -24,9 +31,9 @@ SESSION_FIELDS = [
 ]
 
 LOG_COLUMNS = [
-    "date", "start_time", "assay", "arena",
+    "date", "start_time", "assay", "assay_variant", "phase", "arena",
     "experimenter", "cohort",
-    "animal_id", "sex", "strain", "dob", "treatment", "trial_day", "notes",
+    "animal_id", "sex", "strain", "dob", "treatment", "trial_day", "session_number", "notes",
     "duration_set_min", "duration_actual_s", "stopped_early",
     "frames", "repeated_frames", "videos", "encoder", "app_version",
 ]
@@ -66,6 +73,41 @@ def load_animal_list(path: Path) -> list[dict]:
 
 
 # ------------------------------------------------------------- trial files
+APP_NAME = "Creature Capture"
+SCHEMA_VERSION = 1  # Track Tamer metadata standard (metadata_standard.md)
+
+
+def _number(text):
+    """"3" -> 3, "2.5" -> 2.5, "" -> None; other text is kept as text."""
+    if text is None:
+        return None
+    if isinstance(text, (int, float)):
+        return text
+    t = str(text).strip()
+    if not t:
+        return None
+    try:
+        f = float(t)
+    except ValueError:
+        return t
+    return int(f) if f.is_integer() else f
+
+
+def _sex(text: str) -> str:
+    """F, M, or U (unknown or not recorded), per the metadata standard."""
+    t = (text or "").strip().lower()
+    if t in ("f", "female"):
+        return "F"
+    if t in ("m", "male"):
+        return "M"
+    return "U"
+
+
+def _drop_empty(d: dict) -> dict:
+    """The standard: leave unknown fields out instead of writing ""."""
+    return {k: v for k, v in d.items() if v is not None and v != "" and v != []}
+
+
 def write_trial_records(
     *,
     assay: dict,
@@ -82,21 +124,31 @@ def write_trial_records(
     camera_settings: dict,
     master_log: Path,
 ) -> tuple[list[Path], bool]:
-    """Write <stamp>_<arena>_info.csv/.json next to the videos and append to
-    the assay's master log. Returns (info files written, master log updated)."""
+    """Write <stamp>_<arena>_info.json (Track Tamer metadata standard, schema 1)
+    and <stamp>_<arena>_info.csv next to the videos, and append to the
+    experiment's master log. Returns (info files written, master log updated)."""
     written = []
     log_ok = True
     date_s, time_s = stamp.split("_", 1)
     time_s = time_s.replace("-", ":")
+    assay_name = standard_assay(assay) or assay["name"]
+    # Variant and phase only from that assay's own lists (standard, section 3).
+    variant = session_info.get("assay_variant", "")
+    variant = variant if variant in assay_variants(assay_name) else ""
+    phase = session_info.get("phase", "")
+    phase = phase if phase in assay_phases(assay_name) else ""
     for arena_name, animal in arenas.items():
+        arena = arena_slug(arena_name)
         arena_results = [r for r in results if r.arena == arena_name]
         videos = [r.video.name for r in arena_results if r.video]
-        repeated = ";".join(f"{r.label}:{r.repeated}" for r in arena_results)
+        repeated = ";".join(f"{camera_label(r.label, r.arena)}:{r.repeated}" for r in arena_results)
         row = {
             "date": date_s,
             "start_time": time_s,
-            "assay": assay["name"],
-            "arena": arena_name,
+            "assay": assay_name,
+            "assay_variant": variant,
+            "phase": phase,
+            "arena": arena,
             "experimenter": session_info.get("experimenter", ""),
             "cohort": session_info.get("cohort", ""),
             **{k: animal.get(k, "") for k, _, _ in ANIMAL_FIELDS},
@@ -109,7 +161,7 @@ def write_trial_records(
             "encoder": encoder,
             "app_version": __version__,
         }
-        base = out_dir / f"{stamp}_{safe_name(arena_name)}_info"
+        base = out_dir / f"{stamp}_{arena}_info"
         csv_path = base.with_suffix(".csv")
         with open(csv_path, "w", newline="", encoding="utf-8") as f:
             w = csv.DictWriter(f, fieldnames=LOG_COLUMNS)
@@ -117,44 +169,106 @@ def write_trial_records(
             w.writerow(row)
         written.append(csv_path)
 
-        detail = {
-            **row,
-            "start_wall_clock": start_wall.isoformat(timespec="milliseconds") if start_wall else None,
-            "cameras": [
-                {
-                    "label": r.label,
-                    "slot": r.slot_id,
-                    "video": r.video.name if r.video else None,
-                    "timestamps_csv": r.timestamps.name if r.timestamps else None,
-                    "frames": r.frames,
-                    "verified_frames_in_file": r.verified_frames,
-                    "repeated_frames": r.repeated,
-                    "repeated_frame_indices": r.repeated_frames,
-                    "error": r.error,
-                    "camera_settings": _applied_settings(camera_settings.get(r.slot_id)),
-                }
-                for r in arena_results
-            ],
+        info = _drop_empty({
+            "schema_version": SCHEMA_VERSION,
+            "app_name": APP_NAME,
+            "app_version": __version__,
+            "date": date_s,
+            "start_time": time_s,
+            "assay": assay_name,
+            "assay_variant": variant,
+            "phase": phase,
+            "arena": arena,
+            "experimenter": session_info.get("experimenter"),
+            "cohort": session_info.get("cohort"),
+            "animal_id": animal.get("animal_id"),
+            "sex": _sex(animal.get("sex", "")),
+            "strain": animal.get("strain"),
+            "dob": animal.get("dob"),
+            "treatment": animal.get("treatment"),
+            "trial_day": _number(animal.get("trial_day")),
+            "session_number": _number(animal.get("session_number")),
+            "notes": animal.get("notes"),
+            "duration_set_min": _number(duration_set_min),
+            "duration_actual_s": round(duration_actual_s, 2),
+        })
+        info["stopped_early"] = bool(stopped_early)
+        if assay_name == "Object Recognition":
+            info.update(_drop_empty({
+                "objects": [_drop_empty({"name": f"object {i + 1}", **o})
+                            for i, o in enumerate(animal.get("objects", []))],
+            }))
+        info["cameras"] = [_camera_entry(r, duration_actual_s, camera_settings, encoder)
+                           for r in arena_results]
+        info["creature_capture"] = {
+            "experiment": assay["name"],
+            "gpu": encoder == "h264_nvenc",
         }
         json_path = base.with_suffix(".json")
-        json_path.write_text(json.dumps(detail, indent=2), encoding="utf-8")
+        _write_json_atomic(json_path, info)
         written.append(json_path)
 
         log_ok = append_master_log(master_log, row) and log_ok
     return written, log_ok
 
 
-def _applied_settings(saved: dict | None) -> dict:
-    """Camera settings as used in the trial: every control, with the built-in
-    defaults filled in for any the user never saved. ``apply: false`` means the
-    camera was left at its own value for that control."""
-    saved = saved or {}
-    return {"enabled": saved.get("enabled", True),
-            "controls": effective_controls(saved.get("controls"))}
+def _camera_entry(r, duration_actual_s: float, camera_settings: dict, encoder: str) -> dict:
+    entry = {
+        "label": camera_label(r.label, r.arena),
+        "camera_position": r.slot_id,
+        "camera_settings": _applied_settings(camera_settings.get(r.slot_id), encoder),
+    }
+    entry.update(_drop_empty({
+        "video": r.video.name if r.video else None,
+        "timestamps_csv": r.timestamps.name if r.timestamps else None,
+        "fps_set": OUTPUT_FPS,
+        "fps_measured": round(r.frames / duration_actual_s, 3) if duration_actual_s > 0 else None,
+        "width_px": OUTPUT_WIDTH,
+        "height_px": OUTPUT_HEIGHT,
+        "frames": r.frames,
+        "verified_frames_in_file": r.verified_frames,
+        "repeated_frames": r.repeated,
+    }))
+    entry["repeated_frame_indices"] = list(r.repeated_frames)  # from 0, like the MP4
+    if r.error:
+        entry["error"] = r.error
+    return entry
+
+
+def _write_json_atomic(path: Path, data: dict) -> None:
+    """Write to a temporary name, then rename, so a crash never leaves half a file."""
+    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=path.stem + ".", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+        os.replace(tmp, path)
+    except BaseException:
+        Path(tmp).unlink(missing_ok=True)
+        raise
+
+
+def _applied_settings(saved: dict | None, encoder: str) -> dict:
+    """Every setting used for this camera in the trial, changed or not: the
+    video encoder plus each camera control, with the built-in defaults filled
+    in for any the user never saved. ``apply: false`` means the camera was left
+    at its own value for that control."""
+    return {"encoder": encoder, **effective_controls((saved or {}).get("controls"))}
 
 
 def _append_rows(path: Path, rows: list[dict]) -> None:
     new = not path.exists() or path.stat().st_size == 0
+    if not new:
+        with open(path, newline="", encoding="utf-8") as f:
+            header = next(csv.reader(f), [])
+        if header != LOG_COLUMNS:
+            # Log from an older version: rewrite it once with the current columns
+            # so new rows line up (old rows get blanks in the new columns).
+            with open(path, newline="", encoding="utf-8") as f:
+                old = list(csv.DictReader(f))
+            with open(path, "w", newline="", encoding="utf-8") as f:
+                w = csv.DictWriter(f, fieldnames=LOG_COLUMNS, extrasaction="ignore")
+                w.writeheader()
+                w.writerows(old)
     with open(path, "a", newline="", encoding="utf-8") as f:
         w = csv.DictWriter(f, fieldnames=LOG_COLUMNS, extrasaction="ignore")
         if new:

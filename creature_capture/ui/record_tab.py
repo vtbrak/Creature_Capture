@@ -7,16 +7,18 @@ from datetime import datetime
 from pathlib import Path
 
 from PySide6.QtCore import QDate, QObject, Qt, QTimer, Signal
-from PySide6.QtGui import QDoubleValidator
+from PySide6.QtGui import QDoubleValidator, QIntValidator
 from PySide6.QtWidgets import (
-    QComboBox, QDateEdit, QFormLayout, QGridLayout, QGroupBox, QHBoxLayout, QLabel,
-    QLineEdit, QMessageBox, QPlainTextEdit, QPushButton, QScrollArea,
-    QSplitter, QVBoxLayout, QWidget,
+    QComboBox, QDateEdit, QFormLayout, QGridLayout, QGroupBox, QHBoxLayout, QHeaderView,
+    QLabel, QLineEdit, QMessageBox, QPlainTextEdit, QPushButton, QScrollArea,
+    QSplitter, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
 from creature_capture import records
 from creature_capture.camera import effective_controls
-from creature_capture.config import OUTPUT_FPS, Settings, animals_path
+from creature_capture.config import (
+    OBJECT_KINDS, OUTPUT_FPS, Settings, animals_path, assay_phases, assay_variants, standard_assay,
+)
 from creature_capture.recorder import CameraJob, RecordingSession, format_elapsed
 from creature_capture.ui.camera_controls import CameraControlsDialog
 from creature_capture.ui.common import CameraManager, CameraView, EncoderProbe, free_space_gb
@@ -28,7 +30,8 @@ class AnimalForm(QGroupBox):
     """Animal information for one arena. Checkable when the assay has more
     than one arena, so an unused arena can be switched off before starting."""
 
-    def __init__(self, arena_name: str, checkable: bool, animals: list[dict], parent=None):
+    def __init__(self, arena_name: str, checkable: bool, animals: list[dict],
+                 objects: bool = False, parent=None):
         super().__init__(f"{arena_name} - animal", parent)
         self.arena_name = arena_name
         self.setCheckable(checkable)
@@ -66,8 +69,59 @@ class AnimalForm(QGroupBox):
                 w.setFixedHeight(48)
             else:
                 w = QLineEdit()
+                if key in ("trial_day", "session_number"):
+                    w.setValidator(QIntValidator(0, 9999))
+                    w.setPlaceholderText("1, 2, ..." if key == "trial_day"
+                                         else "only if more than one session a day")
             self.fields[key] = w
             form.addRow(f"{label}{' *' if required else ''}", w)
+
+        # Object Recognition: the objects in this arena (metadata standard, section 4).
+        self.objects: QTableWidget | None = None
+        if objects:
+            self.objects = QTableWidget(0, 3)
+            self.objects.setHorizontalHeaderLabels(["Object (e.g. glass bottle)", "Kind", "Position"])
+            self.objects.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+            self.objects.verticalHeader().setVisible(True)
+            self.objects.setFixedHeight(110)
+            for _ in range(2):
+                self._add_object()
+            add = QPushButton("Add object")
+            add.clicked.connect(lambda: self._add_object())
+            rem = QPushButton("Remove")
+            rem.clicked.connect(lambda: self.objects.removeRow(self.objects.currentRow()))
+            btns = QHBoxLayout()
+            btns.addWidget(add)
+            btns.addWidget(rem)
+            btns.addStretch(1)
+            box = QVBoxLayout()
+            box.addWidget(self.objects)
+            box.addLayout(btns)
+            form.addRow("Objects", box)
+
+    def _add_object(self, identity: str = "", kind: str = "", position: str = "") -> None:
+        t = self.objects
+        r = t.rowCount()
+        t.insertRow(r)
+        t.setItem(r, 0, QTableWidgetItem(identity))
+        combo = QComboBox()
+        combo.addItems([""] + OBJECT_KINDS)
+        combo.setCurrentText(kind)
+        t.setCellWidget(r, 1, combo)
+        t.setItem(r, 2, QTableWidgetItem(position))
+
+    def object_values(self) -> list[dict]:
+        out = []
+        if self.objects is None:
+            return out
+        t = self.objects
+        for r in range(t.rowCount()):
+            identity = (t.item(r, 0).text() if t.item(r, 0) else "").strip()
+            kind = t.cellWidget(r, 1).currentText()
+            position = (t.item(r, 2).text() if t.item(r, 2) else "").strip()
+            if identity or kind or position:
+                out.append({"identity": identity, "kind": kind, "position": position})
+        return out
 
     def _picked(self) -> None:
         a = self.pick.currentData()
@@ -108,6 +162,8 @@ class AnimalForm(QGroupBox):
                 out[key] = "" if w.date() == w.minimumDate() else w.date().toString("yyyy-MM-dd")
             elif isinstance(w, QPlainTextEdit):
                 out[key] = w.toPlainText().strip()
+        if self.objects is not None:
+            out["objects"] = self.object_values()
         return out
 
     def clear_for_next_animal(self) -> None:
@@ -184,6 +240,13 @@ class RecordTab(QWidget):
         self.cohort = QLineEdit(settings.get("last_cohort", ""))
         sform.addRow("Experimenter *", self.experimenter)
         sform.addRow("Cohort / litter", self.cohort)
+        # Shown only for assays that have variants / phases (metadata standard).
+        self.variant = QComboBox()
+        self.variant_label = QLabel("Variant")
+        sform.addRow(self.variant_label, self.variant)
+        self.phase = QComboBox()
+        self.phase_label = QLabel("Phase")
+        sform.addRow(self.phase_label, self.phase)
         self.out_label = QLabel("")
         self.out_label.setWordWrap(True)
         self.out_label.setStyleSheet("color:#555;")
@@ -263,6 +326,18 @@ class RecordTab(QWidget):
             self.duration.addItem(f"{d:g}")
         self.duration.setCurrentText(f"{assay.get('default_duration', 10):g}")
 
+        # variant / phase (only for assays in the standard that have them)
+        std = standard_assay(assay)
+        for combo, label, choices in ((self.variant, self.variant_label, assay_variants(std)),
+                                      (self.phase, self.phase_label, assay_phases(std))):
+            current = combo.currentText()
+            combo.clear()
+            combo.addItems([""] + choices)
+            combo.setCurrentText(current if current in choices else "")
+            combo.setVisible(bool(choices))
+            label.setVisible(bool(choices))
+        is_or = std == "Object Recognition"
+
         # animal forms
         old_values = {k: f.values() for k, f in self.forms.items()}
         for f in self.forms.values():
@@ -271,7 +346,7 @@ class RecordTab(QWidget):
         self.forms.clear()
         multi = len(assay["arenas"]) > 1
         for arena in assay["arenas"]:
-            form = AnimalForm(arena["name"], multi, self.animals)
+            form = AnimalForm(arena["name"], multi, self.animals, objects=is_or)
             if arena["name"] in old_values:
                 form.set_values(old_values[arena["name"]])
             form.toggled.connect(self._arena_toggled)
@@ -402,7 +477,10 @@ class RecordTab(QWidget):
         if minutes is None:
             problems.append("Enter a recording length in minutes.")
         session_info = {"experimenter": self.experimenter.text().strip(),
-                        "cohort": self.cohort.text().strip()}
+                        "cohort": self.cohort.text().strip(),
+                        "assay_variant": self.variant.currentText() if self.variant.isVisibleTo(self)
+                        else "",
+                        "phase": self.phase.currentText() if self.phase.isVisibleTo(self) else ""}
         if not session_info["experimenter"]:
             problems.append("Experimenter is required.")
 
