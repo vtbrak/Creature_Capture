@@ -102,7 +102,7 @@ class CameraWorker(threading.Thread):
         self._frame: np.ndarray | None = None
         self._seq = 0
         self._t = 0.0
-        self._stop = threading.Event()
+        self._stop_event = threading.Event()
         self._pending: list[tuple[str, object]] = []
         if controls is not None:
             self._pending.append(("controls", controls))
@@ -127,7 +127,7 @@ class CameraWorker(threading.Thread):
             self._pending.append(("dialog", None))
 
     def stop(self) -> None:
-        self._stop.set()
+        self._stop_event.set()
 
     @property
     def healthy(self) -> bool:
@@ -208,14 +208,14 @@ class CameraWorker(threading.Thread):
     def _run_real(self) -> None:
         cap = None
         failures = 0
-        while not self._stop.is_set():
+        while not self._stop_event.is_set():
             if cap is None:
                 self.status = "opening"
                 cap = self._open()
                 if cap is None:
                     self.status = "error"
                     self.error = "Could not open camera"
-                    self._stop.wait(2.0)
+                    self._stop_event.wait(2.0)
                     continue
                 self.status = "live"
                 self.error = ""
@@ -238,7 +238,7 @@ class CameraWorker(threading.Thread):
                     cap.release()
                     cap = None
                     failures = 0
-                    self._stop.wait(1.0)
+                    self._stop_event.wait(1.0)
                 else:
                     time.sleep(0.01)
                 continue
@@ -258,7 +258,7 @@ class CameraWorker(threading.Thread):
         next_t = time.perf_counter()
         start = next_t
         brightness = 0
-        while not self._stop.is_set():
+        while not self._stop_event.is_set():
             for kind, payload in self._take_pending():
                 if kind == "controls":
                     c = effective_controls(payload)  # type: ignore[arg-type]

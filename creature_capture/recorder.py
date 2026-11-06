@@ -226,7 +226,7 @@ class RecordingSession:
         self.stopped_early = False
         self.start_wall: datetime | None = None
         self.end_wall: datetime | None = None
-        self._stop = threading.Event()
+        self._stop_event = threading.Event()
         self._writers: list[_VideoWriter] = []
         self._thread: threading.Thread | None = None
         self.running = False
@@ -246,7 +246,7 @@ class RecordingSession:
         self._thread.start()
 
     def request_stop(self) -> None:
-        self._stop.set()
+        self._stop_event.set()
 
     @property
     def elapsed_s(self) -> float:
@@ -293,7 +293,7 @@ class RecordingSession:
         _sleep_until(t0)
         self.start_wall = datetime.now()
         k = 0
-        while k < self.total_frames and not self._stop.is_set():
+        while k < self.total_frames and not self._stop_event.is_set():
             target = t0 + k * period
             _sleep_until(target)
             tick = time.perf_counter()
