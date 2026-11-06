@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 
 from creature_capture import __version__
+from creature_capture.camera import effective_controls
 
 ANIMAL_FIELDS = [
     ("animal_id", "Animal ID", True),
@@ -19,7 +20,7 @@ ANIMAL_FIELDS = [
 ]
 SESSION_FIELDS = [
     ("experimenter", "Experimenter", True),
-    ("cohort", "Cohort", False),
+    ("cohort", "Cohort / litter", False),
 ]
 
 LOG_COLUMNS = [
@@ -130,7 +131,7 @@ def write_trial_records(
                     "repeated_frames": r.repeated,
                     "repeated_frame_indices": r.repeated_frames,
                     "error": r.error,
-                    "camera_settings": camera_settings.get(r.slot_id, {}),
+                    "camera_settings": _applied_settings(camera_settings.get(r.slot_id)),
                 }
                 for r in arena_results
             ],
@@ -141,6 +142,15 @@ def write_trial_records(
 
         log_ok = append_master_log(master_log, row) and log_ok
     return written, log_ok
+
+
+def _applied_settings(saved: dict | None) -> dict:
+    """Camera settings as used in the trial: every control, with the built-in
+    defaults filled in for any the user never saved. ``apply: false`` means the
+    camera was left at its own value for that control."""
+    saved = saved or {}
+    return {"enabled": saved.get("enabled", True),
+            "controls": effective_controls(saved.get("controls"))}
 
 
 def _append_rows(path: Path, rows: list[dict]) -> None:

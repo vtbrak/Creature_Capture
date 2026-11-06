@@ -148,11 +148,21 @@ def test_trial_records_and_master_log(tmp_path):
         arenas={"Arena1": {"animal_id": "M1", "dob": "2026-01-01"}, "Arena2": {"animal_id": "M2"}},
         results=results, duration_set_min=10, duration_actual_s=s.elapsed_s,
         stopped_early=False, start_wall=s.start_wall, encoder="libx264",
-        camera_settings={}, master_log=log)
+        camera_settings={results[0].slot_id: {"enabled": True,
+                                              "controls": {"gain": {"apply": True, "value": 12}}}},
+        master_log=log)
     assert ok
     assert (tmp_path / "2026-11-05_14-32-07_Arena1_info.csv").exists()
     info = json.loads((tmp_path / "2026-11-05_14-32-07_Arena1_info.json").read_text())
     assert [c["label"] for c in info["cameras"]] == ["Cam0", "Cam1"]
+    # Saved control kept; never-saved controls filled with the defaults actually applied.
+    c0 = info["cameras"][0]["camera_settings"]["controls"]
+    assert c0["gain"] == {"apply": True, "value": 12}
+    assert c0["auto_exposure"] == {"apply": True, "value": 0}
+    assert c0["exposure"] == {"apply": True, "value": -5}
+    # A camera with no saved settings at all still records every control.
+    c1 = info["cameras"][1]["camera_settings"]
+    assert c1["enabled"] is True and set(c1["controls"]) == set(c0)
     rows = list(csv.DictReader(open(log)))
     assert [r["animal_id"] for r in rows] == ["M1", "M2"]
     assert rows[0]["start_time"] == "14:32:07"

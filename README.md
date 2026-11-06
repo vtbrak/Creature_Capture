@@ -85,7 +85,7 @@ D:\BehaviorVideos\OpenField\
     ├── 2026-11-05_14-32-07_Arena2_Overhead.mp4
     ├── 2026-11-05_14-32-07_Arena2_Horizontal.mp4
     ├── 2026-11-05_14-32-07_Arena1_info.csv    ← animal + session info, length set/actual, repeated frames
-    ├── 2026-11-05_14-32-07_Arena1_info.json   ← same plus camera settings used, per-frame details
+    ├── 2026-11-05_14-32-07_Arena1_info.json   ← same plus exact start time and per-camera details
     ├── 2026-11-05_14-32-07_Arena2_info.csv
     ├── 2026-11-05_14-32-07_Arena2_info.json
     └── 2026-11-05_14-32-07_<camera>_frames.csv ← per-frame timestamps for each camera
@@ -94,6 +94,20 @@ D:\BehaviorVideos\OpenField\
 Log columns: date, start_time, assay, arena, experimenter, cohort, animal_id, sex, strain, dob,
 treatment, trial_day, notes, duration_set_min, duration_actual_s, stopped_early, frames,
 repeated_frames, videos, encoder, app_version.
+
+The `_info.json` has all of those fields, plus:
+
+* `start_wall_clock`: start time to the millisecond, e.g. `2026-11-05T14:32:07.412`
+* `cameras`: one entry per camera in that arena with `label`, `slot`, `video`, `timestamps_csv`,
+  `frames`, `verified_frames_in_file` (frames counted in the finished MP4), `repeated_frames`,
+  `repeated_frame_indices` (frame numbers of the repeats), `error`, and `camera_settings`.
+  `camera_settings` lists every camera control as actually used in the trial (auto_exposure,
+  exposure, gain, brightness, contrast, gamma, sharpness, auto_wb, wb_temperature), each with
+  `apply` and `value`, including built-in defaults for controls never changed. `apply: false`
+  means the camera was left at its own value.
+
+Per-frame timing is in each camera's `_frames.csv`, one row per video frame: `frame`,
+`video_time_s`, `tick_time_s`, `camera_frame_time_s`, `camera_frame_seq`, `repeated`.
 
 If the master log is open in Excel when a trial finishes, the row is saved to
 `OpenField_log_pending.csv` and merged into the log automatically after the next trial.

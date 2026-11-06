@@ -183,7 +183,7 @@ class RecordTab(QWidget):
         self.experimenter = QLineEdit(settings.get("last_experimenter", ""))
         self.cohort = QLineEdit(settings.get("last_cohort", ""))
         sform.addRow("Experimenter *", self.experimenter)
-        sform.addRow("Cohort", self.cohort)
+        sform.addRow("Cohort / litter", self.cohort)
         self.out_label = QLabel("")
         self.out_label.setWordWrap(True)
         self.out_label.setStyleSheet("color:#555;")
