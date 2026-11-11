@@ -31,6 +31,8 @@ the commit letters tell builds apart, since they all report 0.2.0 until the rele
 - [ ] Untick an arena and a single camera and check the greyed-out NOT RECORDING
       feeds are clear enough on the PC's screen, including a position with no camera.
 - [ ] Check Open Field offers 90 min and a 90 min trial records and saves correctly.
+- [ ] With the real cameras, confirm every feed reads close to 30 fps with no ⚠ flag.
+      Then set a long exposure (above -5) on one and check its feed turns orange or red.
 - [ ] Camera controls (the button in each camera's row in Settings → Cameras, or the
       button above a feed): with
       the real cameras, check that Manual control, Auto on / Auto off and the sliders
@@ -99,3 +101,5 @@ Once phases 1 and 2 are settled:
 - [x] The window can be made much narrower (about 840 wide, was 1420): feeds shrink,
       camera names shorten with "…", and the two controls above each feed use short
       labels when space is tight (2026-11-11).
+- [x] A feed is flagged (orange, or red below 20 fps) when its camera runs below the
+      rate asked for or stops sending frames (2026-11-11).

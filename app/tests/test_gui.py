@@ -305,3 +305,44 @@ def test_camera_controls_in_the_cameras_table(app, tmp_path, monkeypatch):
     assert not st.slot_table.cellWidget(0, 2).isEnabled()
     win.cameras.shutdown()
     win.close()
+
+
+def test_slow_camera_is_flagged_on_its_feed(app):
+    from test_core import _worker_with_frames
+
+    from creature_capture.ui.common import CameraView
+
+    view = CameraView("Arena 1 Overhead")
+    view.set_worker(_worker_with_frames(30, 3))
+    view.refresh()
+    assert view.status.text().startswith("Camera: 30.0 fps")
+    assert view.image.styleSheet() == view.LIVE_STYLE
+
+    view.set_worker(_worker_with_frames(10, 3))  # really running at 10 fps
+    view.refresh("repeated frames: 0  |  ")
+    text = view.status.text()
+    assert "10.0 fps: too slow" in text and "asked for 30" in text
+    assert text.startswith("repeated frames: 0") and view.status.toolTip() == text
+    assert view.image.styleSheet() == view.RATE_STYLE["too_slow"]
+
+    view.set_worker(_worker_with_frames(25, 3))  # fast enough for the video, below what was asked
+    view.refresh()
+    assert "25.0 fps" in view.status.text() and "below the 30 asked for" in view.status.text()
+    assert view.image.styleSheet() == view.RATE_STYLE["slow"]
+
+    view.set_worker(_worker_with_frames(10, 1))  # just opened: not flagged yet
+    view.refresh()
+    assert "⚠" not in view.status.text() and view.image.styleSheet() == view.LIVE_STYLE
+
+    view.set_worker(_worker_with_frames(30, 3, ended_ago=2.0))  # frames stopped arriving
+    view.refresh()
+    assert "No frames from the camera" in view.status.text()
+    assert view.image.styleSheet() == view.RATE_STYLE["too_slow"]
+
+    # A camera that is switched off keeps its greyed-out look.
+    view.set_worker(_worker_with_frames(10, 3))
+    view.set_off(True)
+    view.refresh()
+    assert view.image.styleSheet() == view.OFF_STYLE and "too slow" in view.status.text()
+    view.set_off(False)
+    assert view.image.styleSheet() == view.RATE_STYLE["too_slow"]

@@ -18,7 +18,7 @@ from dataclasses import dataclass
 import cv2
 import numpy as np
 
-from creature_capture.config import OUTPUT_HEIGHT, OUTPUT_WIDTH
+from creature_capture.config import OUTPUT_FPS, OUTPUT_HEIGHT, OUTPUT_WIDTH
 from creature_capture.devices import DeviceInfo
 
 IS_WINDOWS = sys.platform == "win32"
@@ -89,6 +89,25 @@ def _bool_to_backend(key: str, on: bool) -> float:
 
 
 # --------------------------------------------------------------------------
+# Frame rate check
+# --------------------------------------------------------------------------
+def rate_problem(measured: float, asked: float) -> str:
+    """How a camera's measured frame rate compares with what is needed.
+
+    "too_slow": below the video's own rate, so every recording will have
+                repeated frames (a camera really running at 10 fps, say);
+    "slow":     fast enough for the video, but clearly below the capture rate
+                asked for;
+    "":         fine. A small shortfall (29.97 for 30) is not a problem.
+    """
+    if measured < OUTPUT_FPS - 0.5:
+        return "too_slow"
+    if measured < asked * 0.93:
+        return "slow"
+    return ""
+
+
+# --------------------------------------------------------------------------
 # Capture thread
 # --------------------------------------------------------------------------
 class CameraWorker(threading.Thread):
@@ -109,7 +128,8 @@ class CameraWorker(threading.Thread):
         self.status = "opening"
         self.error = ""
         self.native_size = (0, 0)
-        self.measured_fps = 0.0
+        self.measured_fps = 0.0  # over the last 2 s
+        self.fps_settled = False  # measured over long enough to be trusted
         self.read_values: dict[str, float] = {}
         self._fps_window: deque[float] = deque()  # frame times in the last 2 s
 
@@ -152,6 +172,11 @@ class CameraWorker(threading.Thread):
             win.popleft()
         span = t - win[0]
         self.measured_fps = (len(win) - 1) / span if span > 0 else 0.0
+        self.fps_settled = span >= 1.5  # reads low just after opening or a gap
+
+    def rate_flag(self) -> str:
+        """rate_problem() for this camera; "" while its rate is still settling."""
+        return rate_problem(self.measured_fps, self.capture_fps) if self.fps_settled else ""
 
     def _take_pending(self):
         with self._lock:

@@ -16,7 +16,7 @@ from PySide6.QtWidgets import (
 from creature_capture import devices as devmod
 from creature_capture import ffmpeg_util
 from creature_capture.camera import CameraWorker
-from creature_capture.config import OUTPUT_HEIGHT, OUTPUT_WIDTH, Settings
+from creature_capture.config import OUTPUT_FPS, OUTPUT_HEIGHT, OUTPUT_WIDTH, Settings
 
 
 class CameraManager:
@@ -186,6 +186,10 @@ class CameraView(QFrame):
 
     LIVE_STYLE = "background:#111; color:#bbb;"
     OFF_STYLE = "background:#969696; color:#333; border:3px dashed #555;"
+    # Border when the camera is running below the rate asked for (see camera.rate_problem).
+    RATE_STYLE = {"": LIVE_STYLE,
+                  "slow": LIVE_STYLE + "border:3px solid #d08000;",
+                  "too_slow": LIVE_STYLE + "border:3px solid #cc0000;"}
     OFF_TEXT = "NOT RECORDING"
 
     def __init__(self, title: str, show_toggle: bool = True, parent=None):
@@ -197,6 +201,7 @@ class CameraView(QFrame):
         self._last_seq = -1
         self._recording = False
         self._off = False  # will not be recorded: shown greyed out
+        self._rate_problem = ""  # "", "slow" or "too_slow": the camera's frame rate
         self._missing_text = "No camera"
 
         self._title = title
@@ -289,11 +294,16 @@ class CameraView(QFrame):
         """Grey the view out when this camera will not be recorded (its arena or
         its own "Record this camera" box is switched off), camera or no camera."""
         self._off = off
-        self.image.setStyleSheet(self.OFF_STYLE if off else self.LIVE_STYLE)
+        self._restyle()
         self.title.setEnabled(not off)
         self._last_seq = -1  # redraw the feed in its new look on the next refresh
         if self.worker is None:
             self._show_placeholder()
+
+    def _restyle(self) -> None:
+        style = self.OFF_STYLE if self._off else self.RATE_STYLE[self._rate_problem]
+        if style != self.image.styleSheet():
+            self.image.setStyleSheet(style)
 
     def refresh(self, first_status: str = "") -> None:
         """Draw the newest frame and the status line. ``first_status`` goes at the
@@ -306,16 +316,33 @@ class CameraView(QFrame):
             self._last_seq = seq
             pm = gray_to_pixmap(frame, self.image.width(), self.image.height())
             self.image.setPixmap(greyed_out(pm, self.OFF_TEXT) if self._off else pm)
+        problem = ""
         if w.status == "error":
             text = f"<span style='color:#c00'>{w.error}</span>"
         elif w.status == "opening":
             text = "Opening camera…"
+        elif seq > 0 and not w.healthy:
+            problem = "too_slow"
+            text = "<span style='color:#c00'><b>⚠ No frames from the camera</b> for over a second</span>"
         else:
             nw, nh = w.native_size
             size = f"{nw}x{nh}" if nw else "?"
-            warn = ("" if (nw, nh) in ((OUTPUT_WIDTH, OUTPUT_HEIGHT), (0, 0))
-                    else f" (resized to {OUTPUT_WIDTH}x{OUTPUT_HEIGHT})")
-            text = f"{first_status}Camera: {w.measured_fps:4.1f} fps, {size}{warn}"
+            if (nw, nh) not in ((OUTPUT_WIDTH, OUTPUT_HEIGHT), (0, 0)):
+                size += f" (resized to {OUTPUT_WIDTH}x{OUTPUT_HEIGHT})"
+            fps, asked = w.measured_fps, w.capture_fps
+            problem = w.rate_flag()
+            if problem == "too_slow":
+                rate = (f"<span style='color:#c00'><b>⚠ {fps:.1f} fps: too slow</b> for "
+                        f"{OUTPUT_FPS} fps video, frames will be repeated</span> (asked for {asked:g})")
+            elif problem == "slow":
+                rate = (f"<span style='color:#b60'><b>⚠ {fps:.1f} fps</b>: below the "
+                        f"{asked:g} asked for</span>")
+            else:
+                rate = f"Camera: {fps:4.1f} fps"
+            text = f"{first_status}{rate}, {size}"
+        if problem != self._rate_problem:
+            self._rate_problem = problem
+            self._restyle()
         if text != self.status.text():
             self.status.setText(text)
             self.status.setToolTip(text)

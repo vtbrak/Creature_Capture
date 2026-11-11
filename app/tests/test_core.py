@@ -429,3 +429,36 @@ def test_install_files_pin_the_tested_versions():
             assert metadata.version(name) == version, name
         except metadata.PackageNotFoundError:
             assert name in build_only, f"{name} is not installed"
+
+
+def _worker_with_frames(fps, seconds, ended_ago=0.0, asked=30):
+    """A camera worker (not started) that has just received frames at ``fps``."""
+    from creature_capture.camera import CameraWorker
+
+    w = CameraWorker(devices.DeviceInfo(id="sim:0", name="Test", index=0, kind="sim"), asked)
+    w.status = "live"
+    frame = np.zeros((600, 800), np.uint8)
+    end = time.perf_counter() - ended_ago
+    n = int(fps * seconds)
+    for i in range(n + 1):
+        w._publish(frame, end - (n - i) / fps)
+    return w
+
+
+def test_camera_rate_below_what_was_asked_is_flagged():
+    from creature_capture.camera import rate_problem
+
+    assert rate_problem(30.0, 30) == "" and rate_problem(29.97, 30) == ""
+    assert rate_problem(28.5, 30) == ""  # a small shortfall is not flagged
+    assert rate_problem(25.0, 30) == "slow" and rate_problem(20.0, 30) == "slow"
+    assert rate_problem(19.0, 30) == "too_slow" and rate_problem(10.0, 30) == "too_slow"
+    assert rate_problem(25.0, 25) == "" and rate_problem(19.9, 20) == ""
+    assert rate_problem(15.0, 20) == "too_slow"
+
+    assert _worker_with_frames(30, 3).rate_flag() == ""
+    slow = _worker_with_frames(10, 3)  # e.g. a camera that fell back to a slow mode
+    assert slow.measured_fps == pytest.approx(10, abs=0.2) and slow.rate_flag() == "too_slow"
+    assert _worker_with_frames(25, 3).rate_flag() == "slow"
+    # The rate reads low for the first moments after a camera opens: no flag yet.
+    starting = _worker_with_frames(10, 1)
+    assert not starting.fps_settled and starting.rate_flag() == ""

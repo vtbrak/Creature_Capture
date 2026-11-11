@@ -74,6 +74,13 @@ whether the NVIDIA encoder works, and the result of a 3-second test recording.
 4. Open field: untick an arena (its box title) if only one arena is in use. A single camera
    can be left out with its **Record this camera** box. Feeds that will not be recorded are
    greyed out and marked NOT RECORDING, whether or not a camera is assigned.
+
+   **Check each feed's frame rate before you start.** The line under each feed shows the rate the
+   camera is really delivering. If it is below the capture rate asked for (30 fps unless changed in
+   Settings), the line shows an orange ⚠ and the feed gets an orange border. If it is below 20 fps,
+   the ⚠ and border are red: the camera is too slow for the video, and every recording from it
+   will contain repeated frames. A camera that has stopped sending frames is flagged in red too.
+   The usual causes are an exposure longer than 1/32 s, or the camera running in a slow mode.
 5. Press **Start recording**. Recording begins immediately, so you can record placing the animal.
    It stops automatically at the set length, or press **Stop** (the trial is then logged as *stopped early*).
 6. When saving finishes, a summary appears. If any camera dropped frames it is shown as a warning.
