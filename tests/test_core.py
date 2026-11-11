@@ -365,3 +365,20 @@ def test_clock_failure_ends_the_recording_with_an_error(tmp_path):
     assert not s.running and s.stopped_early  # the app is not left stuck on "REC"
     res = s.finalize()[0]
     assert "internal error" in res.error and res.verified_frames == res.frames == 5
+
+
+def test_open_field_has_90_min_also_for_settings_saved_before(tmp_path):
+    assert 90 in Settings.load(tmp_path / "new.json").assay("Open Field")["durations"]
+
+    old = tmp_path / "old.json"  # as saved by 0.1.0: no 90, and a renamed experiment
+    old.write_text(json.dumps({"version": 1, "assays": [
+        {"name": "OF pilot", "standard_assay": "Open Field", "folder": "OF",
+         "durations": [5, 10, 60], "default_duration": 10, "arenas": []},
+        {"name": "Elevated Plus", "folder": "EPM", "durations": [5, 10], "default_duration": 5,
+         "arenas": []}]}))
+    s = Settings.load(old)
+    assert s.assay("OF pilot")["durations"] == [5, 10, 60, 90]
+    assert s.assay("Elevated Plus")["durations"] == [5, 10]  # other experiments untouched
+    s.assay("OF pilot")["durations"].remove(90)  # removing it later sticks
+    s.save()
+    assert 90 not in Settings.load(old).assay("OF pilot")["durations"]

@@ -65,7 +65,8 @@ whether the NVIDIA encoder works, and the result of a 3-second test recording.
 3. Fill in **Experimenter** (required) and each arena's **Animal ID** (required) and any other
    fields. If an animal list is loaded, pick the animal and the rest fills in.
 4. Open field: untick an arena (its box title) if only one arena is in use. A single camera
-   can be left out with its **Record this camera** box.
+   can be left out with its **Record this camera** box. Feeds that will not be recorded are
+   greyed out and marked NOT RECORDING, whether or not a camera is assigned.
 5. Press **Start recording**. Recording begins immediately, so you can record placing the animal.
    It stops automatically at the set length, or press **Stop** (the trial is then logged as *stopped early*).
 6. When saving finishes, a summary appears. If any camera dropped frames it is shown as a warning.

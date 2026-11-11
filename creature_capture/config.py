@@ -20,7 +20,7 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-SETTINGS_VERSION = 1
+SETTINGS_VERSION = 2  # 2: Open Field gained a 90 min length
 
 # Fixed recording format (per spec). Stored in settings for visibility but the
 # UI does not expose them for editing.
@@ -132,7 +132,7 @@ DEFAULT_ASSAYS = [
         "name": "Open Field",
         "standard_assay": "Open Field",
         "folder": "OpenField",
-        "durations": [5, 10, 15, 20, 30, 60],
+        "durations": [5, 10, 15, 20, 30, 60, 90],
         "default_duration": 10,
         "arenas": [
             {
@@ -215,6 +215,17 @@ def _merge_defaults(data: dict, defaults: dict) -> dict:
     return out
 
 
+def _migrate(data: dict) -> None:
+    """Bring a settings file saved by an older version up to date, in place.
+    (Saved experiments replace the built-in ones, so new defaults don't reach
+    them by themselves.)"""
+    if data.get("version", 1) < 2:
+        for a in data.get("assays", []):
+            if standard_assay(a) == "Open Field" and 90 not in a.get("durations", []):
+                a["durations"] = sorted([*a.get("durations", []), 90])
+    data["version"] = SETTINGS_VERSION
+
+
 class Settings:
     """Thin wrapper around a JSON dict with convenience accessors."""
 
@@ -223,6 +234,7 @@ class Settings:
         self._set_data(data or {})
 
     def _set_data(self, data: dict) -> None:
+        _migrate(data)
         self.data = _merge_defaults(data, DEFAULTS)
         if not self.data.get("base_path"):
             self.data["base_path"] = default_base_path()

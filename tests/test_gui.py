@@ -47,6 +47,15 @@ def test_main_window_with_sim_cameras(app, tmp_path):
     rec.forms["Arena2"].setChecked(False)
     assert not rec._camera_will_record("Arena2_Overhead")
     assert rec._camera_will_record("Arena1_Overhead")
+    # Cameras that won't be recorded are greyed out, the others are not.
+    assert rec.views["Arena2_Overhead"]._off and rec.views["Arena2_Horizontal"]._off
+    assert not rec.views["Arena1_Overhead"]._off
+    assert rec.views["Arena2_Overhead"].image.styleSheet() == rec.views["Arena2_Overhead"].OFF_STYLE
+    rec.views["Arena1_Horizontal"].toggle.setChecked(False)  # one camera switched off
+    assert rec.views["Arena1_Horizontal"]._off
+    rec.views["Arena1_Horizontal"].toggle.setChecked(True)
+    assert not rec.views["Arena1_Horizontal"]._off
+    assert "90" in [rec.duration.itemText(i) for i in range(rec.duration.count())]
     rec.reload()
     assert not rec.forms["Arena2"].active  # an arena switched off stays off
     assert not rec._camera_will_record("Arena2_Overhead")
@@ -95,6 +104,16 @@ def test_main_window_with_sim_cameras(app, tmp_path):
     assert form.values()["objects"] == [
         {"identity": "glass bottle", "kind": "Novel", "position": ""}]
     assert form.objects.rowCount() == 2 and rec.phase.currentText() == "Test"
+
+    # Greyed out also when no camera is assigned to the position.
+    rec.assay_combo.setCurrentText("Open Field")
+    s.slot("Arena2_Overhead")["device"] = None
+    rec.reload()
+    rec.forms["Arena2"].setChecked(False)
+    v = rec.views["Arena2_Overhead"]
+    assert v.worker is None and v._off and v.image.text().startswith("NOT RECORDING")
+    rec.forms["Arena2"].setChecked(True)
+    assert not v._off and not v.image.text().startswith("NOT RECORDING")
 
     win.tabs.setCurrentIndex(1)
     app.processEvents()

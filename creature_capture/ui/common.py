@@ -8,7 +8,7 @@ from pathlib import Path
 
 import numpy as np
 from PySide6.QtCore import QObject, Qt, Signal
-from PySide6.QtGui import QImage, QPixmap
+from PySide6.QtGui import QColor, QImage, QPainter, QPixmap
 from PySide6.QtWidgets import (
     QCheckBox, QFrame, QHBoxLayout, QLabel, QSizePolicy, QToolButton, QVBoxLayout,
 )
@@ -110,6 +110,20 @@ def gray_to_pixmap(frame: np.ndarray, w: int, h: int) -> QPixmap:
                                         Qt.TransformationMode.FastTransformation))
 
 
+def greyed_out(pm: QPixmap, text: str) -> QPixmap:
+    """Wash a feed out to flat grey with a label over it (camera not being recorded)."""
+    p = QPainter(pm)
+    p.fillRect(pm.rect(), QColor(150, 150, 150, 215))
+    font = p.font()
+    font.setBold(True)
+    font.setPixelSize(max(14, pm.height() // 12))
+    p.setFont(font)
+    p.setPen(QColor(50, 50, 50))
+    p.drawText(pm.rect(), Qt.AlignmentFlag.AlignCenter, text)
+    p.end()
+    return pm
+
+
 def free_space_gb(path: str | Path) -> float | None:
     p = Path(path)
     while not p.exists():
@@ -128,6 +142,10 @@ class CameraView(QFrame):
     enabled_changed = Signal(bool)
     controls_requested = Signal()
 
+    LIVE_STYLE = "background:#111; color:#bbb;"
+    OFF_STYLE = "background:#969696; color:#333; border:3px dashed #555;"
+    OFF_TEXT = "NOT RECORDING"
+
     def __init__(self, title: str, show_toggle: bool = True, parent=None):
         super().__init__(parent)
         self.setFrameShape(QFrame.Shape.StyledPanel)
@@ -136,6 +154,8 @@ class CameraView(QFrame):
         self.arena = ""  # ... and the arena it belongs to
         self._last_seq = -1
         self._recording = False
+        self._off = False  # will not be recorded: shown greyed out
+        self._missing_text = "No camera"
 
         self.title = QLabel(f"<b>{title}</b>")
         self.rec = QLabel("")
@@ -158,7 +178,7 @@ class CameraView(QFrame):
         self.image.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.image.setMinimumSize(240, 180)
         self.image.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        self.image.setStyleSheet("background:#111; color:#bbb;")
+        self.image.setStyleSheet(self.LIVE_STYLE)
 
         self.status = QLabel("")
         self.status.setStyleSheet("color:#666;")
@@ -173,18 +193,29 @@ class CameraView(QFrame):
         self.worker = worker
         self._last_seq = -1
         if worker is None:
-            self.image.setPixmap(QPixmap())
-            self.image.setText(missing_text or "No camera assigned")
+            self._missing_text = missing_text or "No camera assigned"
+            self._show_placeholder()
             self.status.setText("")
+
+    def _show_placeholder(self) -> None:
+        """What the picture area says when there is no camera to show."""
+        self.image.setPixmap(QPixmap())
+        self.image.setText(f"{self.OFF_TEXT}\n\n{self._missing_text}" if self._off
+                           else self._missing_text)
 
     def set_recording(self, on: bool) -> None:
         self._recording = on
         self.rec.setText("<span style='color:#d00'>● REC</span>" if on else "")
 
     def set_off(self, off: bool) -> None:
-        self.image.setStyleSheet(
-            "background:#111; color:#bbb;" + ("border:3px solid #888;" if off else "")
-        )
+        """Grey the view out when this camera will not be recorded (its arena or
+        its own "Record this camera" box is switched off), camera or no camera."""
+        self._off = off
+        self.image.setStyleSheet(self.OFF_STYLE if off else self.LIVE_STYLE)
+        self.title.setEnabled(not off)
+        self._last_seq = -1  # redraw the feed in its new look on the next refresh
+        if self.worker is None:
+            self._show_placeholder()
 
     def refresh(self, extra_status: str = "") -> None:
         w = self.worker
@@ -193,7 +224,8 @@ class CameraView(QFrame):
         frame, seq, _ = w.latest()
         if frame is not None and seq != self._last_seq:
             self._last_seq = seq
-            self.image.setPixmap(gray_to_pixmap(frame, self.image.width(), self.image.height()))
+            pm = gray_to_pixmap(frame, self.image.width(), self.image.height())
+            self.image.setPixmap(greyed_out(pm, self.OFF_TEXT) if self._off else pm)
         if w.status == "error":
             self.status.setText(f"<span style='color:#c00'>{w.error}</span>")
         elif w.status == "opening":
