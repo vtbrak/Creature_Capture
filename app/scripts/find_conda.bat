@@ -1,6 +1,6 @@
 @echo off
 rem Locate Anaconda/Miniconda/Miniforge and set CONDA_BAT to its condabin\conda.bat.
-rem Called by install_windows.bat and run_windows.bat.
+rem Called by "Install Creature Capture.bat" and "Creature Capture.bat".
 rem Override by setting CONDA_BASE first, e.g.  set CONDA_BASE=D:\anaconda3
 
 set "CONDA_BAT="

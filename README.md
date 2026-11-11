@@ -117,7 +117,7 @@ columns added automatically the first time a trial is logged.
 ### The info file (`_info.json`)
 
 The `_info.json` follows the **Track Tamer video metadata standard, schema 1 (draft)**
-([metadata_standard.md](metadata_standard.md)), so Track Tamer can fill in the trial details
+([docs/metadata_standard.md](docs/metadata_standard.md)), so Track Tamer can fill in the trial details
 by itself. In short:
 
 * `schema_version` (`1`), `app_name`, `app_version`, and `date` and `start_time` from this
@@ -201,20 +201,36 @@ install locations. If yours is somewhere unusual, set `CONDA_BASE` to the conda 
 
 | | Mac | Windows |
 |---|---|---|
-| Install / update the `creature_capture` environment (from `environment.yml`), then run the self-test | `install_mac.command` | `install_windows.bat` |
-| Start the program | `run_mac.command` | `run_windows.bat` |
+| Install / update the `creature_capture` environment, then run the self-test | `Install Creature Capture.command` | `Install Creature Capture.bat` |
+| Start the program | `Creature Capture.command` | `Creature Capture.bat` |
+
+These four files and this README are all there is in the main folder. Everything the program
+itself needs is in `app/`, and the roadmap and metadata standard are in `docs/`; you don't need
+to open either. Keep the folders together: the install and run files look for `app/` next to them.
 
 Double-click the file. On a Mac, the first time macOS may refuse to open a downloaded
 `.command`: right-click it → **Open** → **Open**. If it opens in a text editor instead, run it from
-Terminal with `bash install_mac.command`. macOS also asks for permission for Terminal to use the
-camera the first time.
+Terminal with `bash "Install Creature Capture.command"`. macOS also asks for permission for
+Terminal to use the camera the first time.
 
-Running the install script again updates the environment after you download a newer version.
+Running the install file again updates the environment after you download a newer version. It
+changes the existing environment in place; it does not rebuild it.
+
+**Package versions are fixed.** `app/environment.yml` and `app/requirements.txt` name the exact version
+of Python and of every package that the tests pass with, on the Mac and in the Windows build
+(Python 3.12.10, PySide6 6.10.3, OpenCV 4.14.0.94, NumPy 2.5.4, imageio-ffmpeg 0.8.1). The
+install file installs exactly those. A test fails if the files disagree with each other or
+with the environment the tests run in; if it fails after you download a newer version, run the
+install file again. To move to a newer package version: change it in both files, run the
+install file, and run the tests.
 
 ## Development
 
+All commands are run from the `app/` folder.
+
 ```bash
-conda env create -f environment.yml     # or: python3 -m venv .venv && pip install -r requirements-dev.txt
+cd app
+conda env create -f environment.yml     # or, with Python 3.12.10: python3 -m venv .venv && pip install -r requirements-dev.txt
 conda activate creature_capture
 python run_creature_capture.py
 ```
@@ -223,7 +239,7 @@ Without real cameras, set **Settings → Testing without cameras → Test-patter
 assign them to the positions. On a Mac, the built-in camera also appears in the list (camera controls
 are mostly not supported on macOS; they work on Windows).
 
-Run the tests:
+Run the tests (from `app/`):
 
 ```bash
 QT_QPA_PLATFORM=offscreen python -m pytest -q
@@ -237,13 +253,16 @@ uploads the zip as an artifact. Pushing a tag like `v0.1.0` also attaches the zi
 
 ### Code layout
 
+The program is in `app/`: `creature_capture/` (below), `tests/`, `scripts/` (finds conda for the
+install and run files), `environment.yml`, the `requirements` files and `run_creature_capture.py`.
+
 | File | Purpose |
 |---|---|
-| `creature_capture/config.py` | Settings file, default experiments and camera positions |
-| `creature_capture/devices.py` | Camera discovery (DirectShow device paths via FFmpeg) |
-| `creature_capture/camera.py` | Capture threads, camera controls |
-| `creature_capture/recorder.py` | Shared 20 fps clock, encoders, overlay, crash-safe output |
-| `creature_capture/records.py` | Animal info, per-trial CSV/JSON, master log |
-| `creature_capture/ffmpeg_util.py` | FFmpeg location, NVENC detection, remux/recovery |
-| `creature_capture/ui/` | Qt interface (Record tab, Settings tab, dialogs) |
-| `creature_capture/selftest.py` | `--self-test` end-to-end check |
+| `app/creature_capture/config.py` | Settings file, default experiments and camera positions |
+| `app/creature_capture/devices.py` | Camera discovery (DirectShow device paths via FFmpeg) |
+| `app/creature_capture/camera.py` | Capture threads, camera controls |
+| `app/creature_capture/recorder.py` | Shared 20 fps clock, encoders, overlay, crash-safe output |
+| `app/creature_capture/records.py` | Animal info, per-trial CSV/JSON, master log |
+| `app/creature_capture/ffmpeg_util.py` | FFmpeg location, NVENC detection, remux/recovery |
+| `app/creature_capture/ui/` | Qt interface (Record tab, Settings tab, dialogs) |
+| `app/creature_capture/selftest.py` | `--self-test` end-to-end check |

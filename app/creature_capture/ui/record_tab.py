@@ -57,6 +57,14 @@ def _set_field_text(w: QWidget, v: str) -> None:
         w.setDate(next((d for d in dates if d.isValid()), w.minimumDate()))
 
 
+def _view_title(label: str, position: str) -> str:
+    """Title of a feed: the camera's file label and its camera position, or just
+    the position when they say the same thing ("Arena1_Overhead" / "Arena 1 Overhead")."""
+    def plain(text: str) -> str:
+        return "".join(ch for ch in text.lower() if ch.isalnum())
+    return position if plain(label) == plain(position) else f"{label}  ({position})"
+
+
 class AnimalForm(QGroupBox):
     """Animal information for one arena. Checkable when the assay has more
     than one arena, so an unused arena can be switched off before starting."""
@@ -223,7 +231,7 @@ class RecordTab(QWidget):
         split.addWidget(self._build_left_panel())
         split.addWidget(self.grid_w)
         split.setStretchFactor(1, 1)
-        split.setSizes([340, 1000])
+        split.setSizes([310, 1090])  # room for both feeds' full titles at the opening size
 
         lay = QVBoxLayout(self)
         lay.addLayout(self._build_top_bar())
@@ -238,7 +246,7 @@ class RecordTab(QWidget):
 
         self.reload()
 
-    def _build_top_bar(self) -> QHBoxLayout:
+    def _build_top_bar(self) -> QVBoxLayout:
         """Experiment, length, Start / Stop, timer and free disk space."""
         self.assay_combo = QComboBox()
         self.assay_combo.setMinimumWidth(180)
@@ -261,19 +269,26 @@ class RecordTab(QWidget):
         self.timer_label.setFont(fixed)
         self.disk_label = QLabel("")
 
-        top = QHBoxLayout()
-        top.addWidget(QLabel("Experiment:"))
-        top.addWidget(self.assay_combo)
-        top.addSpacing(12)
-        top.addWidget(QLabel("Length (min):"))
-        top.addWidget(self.duration)
-        top.addSpacing(12)
-        top.addWidget(self.start_btn)
-        top.addWidget(self.stop_btn)
-        top.addSpacing(12)
-        top.addWidget(self.timer_label)
-        top.addStretch(1)
-        top.addWidget(self.disk_label)
+        controls = QHBoxLayout()
+        controls.addWidget(QLabel("Experiment:"))
+        controls.addWidget(self.assay_combo)
+        controls.addSpacing(12)
+        controls.addWidget(QLabel("Length (min):"))
+        controls.addWidget(self.duration)
+        controls.addSpacing(12)
+        controls.addWidget(self.start_btn)
+        controls.addWidget(self.stop_btn)
+        controls.addStretch(1)
+        # The timer has a line of its own: beside the buttons its text would set
+        # how narrow the window can be made (and widen it when recording starts).
+        self.timer_label.setFixedHeight(self.timer_label.fontMetrics().height() + 4)
+        readout = QHBoxLayout()
+        readout.addWidget(self.timer_label)
+        readout.addStretch(1)
+        readout.addWidget(self.disk_label)
+        top = QVBoxLayout()
+        top.addLayout(controls)
+        top.addLayout(readout)
         return top
 
     def _build_left_panel(self) -> QScrollArea:
@@ -397,7 +412,7 @@ class RecordTab(QWidget):
         cols = 2 if len(cams) > 1 else 1
         for i, (arena_name, c) in enumerate(cams):
             slot = self.settings.slot(c["slot"]) or {"name": c["slot"]}
-            view = CameraView(f"{c['label']}  ({slot['name']})")
+            view = CameraView(_view_title(c["label"], slot["name"]))
             cs = self.settings.camera_settings(assay["name"], c["slot"])
             view.toggle.setChecked(cs["enabled"])
             view.enabled_changed.connect(lambda on, s=c["slot"]: self._camera_toggled(s, on))
@@ -618,7 +633,7 @@ class RecordTab(QWidget):
                 if s is not None and label in s.repeats:
                     n = s.repeats[label]
                     color = "#c00" if n else "#080"
-                    extra = f"  |  <span style='color:{color}'>repeated frames: {n}</span>"
+                    extra = f"<span style='color:{color}'>repeated frames: {n}</span>  |  "
                 view.refresh(extra)
         if s is None:
             self.timer_label.setText("")

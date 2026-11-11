@@ -434,7 +434,7 @@ class SettingsTab(QWidget):
             self.preview.set_worker(None, "Select a camera position")
             return
         slot = self.settings.slots[r]
-        self.preview.title.setText(f"<b>Preview - {slot['name']}</b>")
+        self.preview.set_title(f"Preview - {slot['name']}")
         w = self.cameras.worker_for_slot(slot["id"])
         self.preview.set_worker(w, "Not assigned" if not slot.get("device") else "Not connected")
 

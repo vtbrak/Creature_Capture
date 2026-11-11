@@ -1,6 +1,6 @@
 # Creature Capture roadmap
 
-Last updated 2026-11-10. Tick items off as they're done.
+Last updated 2026-11-11. Tick items off as they're done.
 
 Where things stand: v0.1.0 is the released version. `main` is ahead of it with the
 Track Tamer metadata standard, the code review fixes, Puzzle Box as a standard assay,
@@ -10,9 +10,9 @@ recorded, and a 90 min length for Open Field. Builds from `main` report version
 `main` passes the automated tests and the Windows build, but **nothing has run on the
 recording PC yet**. The v0.2.0 release is not tagged until phases 1 and 2 are settled.
 
-Build to test on the recording PC: `CreatureCapture-0.2.0-4e73690-windows.zip`, from
-the GitHub Actions run for commit `4e73690` (download available until 2026-12-11).
-If `main` has moved on since, use the newest green run instead.
+Build to test on the recording PC: the zip from the newest green run under GitHub
+Actions (downloads last 30 days). It is named `CreatureCapture-0.2.0-<commit>-windows.zip`;
+the commit letters tell builds apart, since they all report 0.2.0 until the release.
 
 ## Phase 1: Prove it on the recording PC
 
@@ -42,7 +42,7 @@ If `main` has moved on since, use the newest green run instead.
 
 ## Phase 2: Settle the handoff with Track Tamer
 
-The metadata standard (`metadata_standard.md`, owned by Track Tamer) is still a
+The metadata standard (`docs/metadata_standard.md`, owned by Track Tamer) is still a
 draft, and Track Tamer plans to read these files only after its own 1.0.
 
 - [ ] Test Track Tamer against real Creature Capture output and fix whatever doesn't
@@ -92,3 +92,10 @@ Once phases 1 and 2 are settled:
 - [x] Open Field length choices include 90 min.
 - [x] Camera controls reworded to "Manual control" with Auto on / Auto off for
       exposure and white balance, and also opened from each camera's row in Settings.
+- [x] Install files pin the exact Python and package versions tested on the Mac and
+      in the Windows build (2026-11-11).
+- [x] Main folder holds only the install and run files and the README; program files
+      are in `app/`, documents in `docs/` (2026-11-11).
+- [x] The window can be made much narrower (about 840 wide, was 1420): feeds shrink,
+      camera names shorten with "…", and the two controls above each feed use short
+      labels when space is tight (2026-11-11).

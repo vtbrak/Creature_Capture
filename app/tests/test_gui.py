@@ -44,6 +44,31 @@ def test_main_window_with_sim_cameras(app, tmp_path):
         time.sleep(0.02)
     assert all(v.worker is not None and v.worker.healthy for v in rec.views.values())
 
+    # The window can be made much narrower than it opens, and the feeds shrink with it.
+    narrowest = win.minimumSizeHint().width()
+    assert narrowest < 950
+    win.resize(600, 400)
+    app.processEvents()
+    assert win.width() == narrowest
+    view = rec.views["Arena1_Overhead"]
+    assert view.image.width() < 300 and view.image.minimumWidth() <= 160
+    assert view.toggle.text() == "Record" and view.gear.text() == "Controls…"  # short labels
+    assert view.title.width() >= view.TITLE_MIN_WIDTH  # the camera's name keeps some room
+    assert view.title.text().endswith("…") and view.title.full_text() == "Arena 1 Overhead"
+    # Recording must not need more width: REC is shown in the (shortened) title, and
+    # the timer has a line of its own.
+    view.set_recording(True)
+    rec.timer_label.setText("● REC 01:29:59 / 01:30:00   remaining 00:00:01")
+    app.processEvents()
+    assert view.title.full_text().startswith("● REC")
+    assert win.minimumSizeHint().width() == narrowest and win.width() == narrowest
+    view.set_recording(False)
+    assert not view.title.full_text().startswith("● REC")
+    win.resize(1400, 900)
+    app.processEvents()
+    assert view.title.text() == view.title.full_text()  # room again: full title
+    assert view.toggle.text() == "Record this camera" and view.gear.text() == "Camera controls…"
+
     rec.forms["Arena2"].setChecked(False)
     assert not rec._camera_will_record("Arena2_Overhead")
     assert rec._camera_will_record("Arena1_Overhead")

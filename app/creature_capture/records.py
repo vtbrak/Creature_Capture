@@ -68,7 +68,7 @@ def load_animal_list(path: Path) -> list[dict]:
 
 
 # ------------------------------------------------------------- trial files
-SCHEMA_VERSION = 1  # Track Tamer metadata standard (metadata_standard.md)
+SCHEMA_VERSION = 1  # Track Tamer metadata standard (docs/metadata_standard.md)
 
 
 def _number(text):

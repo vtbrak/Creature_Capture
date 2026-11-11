@@ -1,6 +1,6 @@
 #!/bin/bash
 # Locate Anaconda/Miniconda/Miniforge and load conda into this shell by
-# sourcing <conda base>/etc/profile.d/conda.sh. Sourced by the .command files.
+# sourcing <conda base>/etc/profile.d/conda.sh. Sourced by the .command files in the folder above app/.
 # Override by setting CONDA_BASE before running, e.g. CONDA_BASE=~/miniforge3
 
 find_conda_sh() {

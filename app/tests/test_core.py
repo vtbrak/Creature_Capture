@@ -382,3 +382,50 @@ def test_open_field_has_90_min_also_for_settings_saved_before(tmp_path):
     s.assay("OF pilot")["durations"].remove(90)  # removing it later sticks
     s.save()
     assert 90 not in Settings.load(old).assay("OF pilot")["durations"]
+
+
+def test_install_files_pin_the_tested_versions():
+    """environment.yml and the requirements files name one exact version of every
+    package, agree with each other, and match what these tests are running with."""
+    import platform
+    import re
+    from importlib import metadata
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]  # app/
+
+    def pins(text):  # "name==1.2.3" lines (requirements) or "- name==1.2.3" (environment.yml)
+        return dict(re.findall(r"^\s*(?:- )?([A-Za-z0-9_.-]+)==([^\s#]+)", text, re.M))
+
+    def loose(text):  # package lines that are not pinned to one version
+        lines = [ln.split("#")[0].strip().removeprefix("- ") for ln in text.splitlines()]
+        return [ln for ln in lines if ln and re.fullmatch(r"[A-Za-z0-9_.-]+(\s*[<>~!]=?.*)?", ln)
+                and ln not in ("conda-forge", "nodefaults")]
+
+    runtime_txt = (root / "requirements.txt").read_text()
+    dev_txt = (root / "requirements-dev.txt").read_text()
+    env_txt = (root / "environment.yml").read_text()
+    runtime, dev, env = pins(runtime_txt), {**pins(runtime_txt), **pins(dev_txt)}, pins(env_txt)
+    assert not loose(runtime_txt) and not loose(dev_txt.replace("-r requirements.txt", ""))
+    assert not loose(env_txt.split("dependencies:")[1])
+
+    # The conda environment installs the app's packages plus pytest, at the same versions.
+    assert set(runtime) <= set(env) and "pytest" in env
+    assert all(dev[name] == version for name, version in env.items())
+
+    # Python and pip are pinned in environment.yml, and the Windows build uses that Python.
+    conda = dict(re.findall(r"^\s*- (python|pip)=([0-9.]+)\s*$", env_txt, re.M))
+    assert set(conda) == {"python", "pip"}
+    workflow = (root.parent / ".github" / "workflows" / "build-windows.yml").read_text()
+    assert f'python-version: "{conda["python"]}"' in workflow
+    assert f'pip=={conda["pip"]}' in workflow
+
+    # What is installed here is exactly what the files ask for. (If this fails
+    # after a download, run the install script again to update the environment.)
+    assert platform.python_version() == conda["python"]
+    build_only = {"pyinstaller", "pyinstaller-hooks-contrib"}  # not in the conda environment
+    for name, version in dev.items():
+        try:
+            assert metadata.version(name) == version, name
+        except metadata.PackageNotFoundError:
+            assert name in build_only, f"{name} is not installed"

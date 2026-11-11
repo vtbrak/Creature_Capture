@@ -59,7 +59,7 @@ def default_base_path() -> str:
     return str(Path.home() / "BehaviorVideos")
 
 
-# Assay names from the Track Tamer metadata standard (metadata_standard.md,
+# Assay names from the Track Tamer metadata standard (docs/metadata_standard.md,
 # section 3), each with its fixed lists of variants and phases. The info
 # JSON's "assay" must be exactly one of these names for Track Tamer to set the
 # test type; "assay_variant" and "phase" come from that assay's lists.

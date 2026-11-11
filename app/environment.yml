@@ -1,0 +1,23 @@
+# Conda environment for Creature Capture (macOS and Windows).
+# Created/updated by "Install Creature Capture" (.command on Mac, .bat on Windows).
+# Uses conda-forge only (no Anaconda "defaults" channel, so no Terms-of-Service prompt).
+#
+# Every package is pinned to the exact version the tests pass with, on the Mac
+# and in the Windows build. To change one: edit it here and in requirements.txt
+# / requirements-dev.txt (and the Python version in
+# ../.github/workflows/build-windows.yml), run the install file again (it
+# updates the existing environment in place), then run the tests.
+# tests/test_core.py checks that these files agree and match what is installed.
+name: creature_capture
+channels:
+  - conda-forge
+  - nodefaults
+dependencies:
+  - python=3.12.10
+  - pip=26.2.2
+  - pip:
+      - PySide6==6.10.3
+      - opencv-python-headless==4.14.0.94
+      - numpy==2.5.4
+      - imageio-ffmpeg==0.8.1  # bundles FFmpeg, including the NVIDIA encoder
+      - pytest==9.2.0

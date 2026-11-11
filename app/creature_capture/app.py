@@ -57,7 +57,11 @@ class MainWindow(QMainWindow):
         self.settings_tab.lock_changed.connect(self.record.set_locked)
         self.record.recording_changed.connect(self._recording_changed)
         self.statusBar().showMessage(f"Settings: {app_data_dir()}")
-        self.resize(1400, 900)
+        # Start large, but never larger than the screen; it can be made much smaller.
+        screen = QApplication.primaryScreen()
+        avail = screen.availableGeometry() if screen else None
+        self.resize(min(1400, avail.width() - 40) if avail else 1400,
+                    min(900, avail.height() - 60) if avail else 900)
 
     def _mark_dirty(self) -> None:
         self._record_dirty = True

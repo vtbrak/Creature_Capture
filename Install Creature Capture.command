@@ -1,7 +1,7 @@
 #!/bin/bash
 # Creature Capture - install (or update) the conda environment on macOS.
 # Double-click in Finder. First time: right-click > Open if macOS blocks it.
-cd "$(dirname "$0")" || exit 1
+cd "$(dirname "$0")/app" || exit 1  # the program files
 ENV_NAME=creature_capture
 source scripts/find_conda.sh
 
@@ -18,5 +18,5 @@ echo ""
 echo "Running self-test..."
 python run_creature_capture.py --self-test
 echo ""
-echo "Done. Start the program with run_mac.command"
+echo "Done. Start the program with \"Creature Capture.command\""
 read -r -p "Press Return to close." _

@@ -124,6 +124,43 @@ def greyed_out(pm: QPixmap, text: str) -> QPixmap:
     return pm
 
 
+class ElidedLabel(QLabel):
+    """A one-line label that shortens its text with "…" when there isn't room,
+    instead of stopping the window from being made narrower. The full text is
+    in its tooltip."""
+
+    def __init__(self, text: str = "", bold: bool = False, parent=None):
+        super().__init__(parent)
+        if bold:
+            font = self.font()
+            font.setBold(True)
+            self.setFont(font)
+        self.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
+        self.setFixedHeight(self.fontMetrics().height() + 2)
+        self._full = ""
+        self.set_full_text(text)
+
+    def set_full_text(self, text: str) -> None:
+        self._full = text
+        self.setToolTip(text)
+        self._elide()
+
+    def full_text(self) -> str:
+        return self._full
+
+    def full_width(self) -> int:
+        """The width needed to show the whole text."""
+        return self.fontMetrics().horizontalAdvance(self._full) + 4
+
+    def resizeEvent(self, event) -> None:  # noqa: N802 - Qt API
+        super().resizeEvent(event)
+        self._elide()
+
+    def _elide(self) -> None:
+        self.setText(self.fontMetrics().elidedText(
+            self._full, Qt.TextElideMode.ElideRight, max(0, self.width())))
+
+
 def free_space_gb(path: str | Path) -> float | None:
     p = Path(path)
     while not p.exists():
@@ -142,6 +179,11 @@ class CameraView(QFrame):
     enabled_changed = Signal(bool)
     controls_requested = Signal()
 
+    # Header labels: the long ones when they fit beside the whole title, else the short ones.
+    TOGGLE_TEXT = ("Record this camera", "Record")
+    GEAR_TEXT = ("Camera controls…", "Controls…")
+    TITLE_MIN_WIDTH = 80  # the camera's name always keeps at least this much room
+
     LIVE_STYLE = "background:#111; color:#bbb;"
     OFF_STYLE = "background:#969696; color:#333; border:3px dashed #555;"
     OFF_TEXT = "NOT RECORDING"
@@ -157,37 +199,63 @@ class CameraView(QFrame):
         self._off = False  # will not be recorded: shown greyed out
         self._missing_text = "No camera"
 
-        self.title = QLabel(f"<b>{title}</b>")
-        self.rec = QLabel("")
-        self.toggle = QCheckBox("Record this camera")
+        self._title = title
+        self.title = ElidedLabel(title, bold=True)  # also shows "● REC" while recording
+        self.title.setMinimumWidth(self.TITLE_MIN_WIDTH)
+        self.toggle = QCheckBox()
         self.toggle.setChecked(True)
         self.toggle.setVisible(show_toggle)
+        self.toggle.setToolTip(self.TOGGLE_TEXT[0])
         self.toggle.toggled.connect(self.enabled_changed)
         self.gear = QToolButton()
-        self.gear.setText("Camera controls…")
+        self.gear.setToolTip(self.GEAR_TEXT[0])
         self.gear.clicked.connect(self.controls_requested)
+        # Each control may be as narrow as its short label, and _fit_header picks the
+        # label that fits. So a narrow window gets short labels, not a wide minimum.
+        self._long_controls_width = 32  # spacing and margins, + the long labels (below)
+        for w, (long, short) in ((self.toggle, self.TOGGLE_TEXT), (self.gear, self.GEAR_TEXT)):
+            w.setText(short)
+            w.setMinimumWidth(w.sizeHint().width())
+            w.setText(long)
+            self._long_controls_width += w.sizeHint().width()
+            w.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+        self._compact = False
 
         head = QHBoxLayout()
-        head.addWidget(self.title)
-        head.addWidget(self.rec)
-        head.addStretch(1)
+        head.addWidget(self.title, 1)  # takes the spare width, and gives it up first
         head.addWidget(self.toggle)
         head.addWidget(self.gear)
 
         self.image = QLabel("No camera")
         self.image.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.image.setMinimumSize(240, 180)
+        self.image.setMinimumSize(160, 120)  # the feed shrinks with the window down to this
         self.image.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.image.setStyleSheet(self.LIVE_STYLE)
 
         self.status = QLabel("")
         self.status.setStyleSheet("color:#666;")
+        # Never sets the feed's width: a long status is cut off (it is also the tooltip).
+        self.status.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
+        self.status.setFixedHeight(self.status.fontMetrics().height() + 2)
 
         lay = QVBoxLayout(self)
         lay.setContentsMargins(6, 6, 6, 6)
         lay.addLayout(head)
         lay.addWidget(self.image, 1)
         lay.addWidget(self.status)
+
+    def resizeEvent(self, event) -> None:  # noqa: N802 - Qt API
+        super().resizeEvent(event)
+        self._fit_header()
+
+    def _fit_header(self) -> None:
+        """Long labels only if the whole title still fits beside them: the camera's
+        name matters more than the wording of the two controls."""
+        compact = self.width() < self.title.full_width() + self._long_controls_width
+        if compact != self._compact:
+            self._compact = compact
+            self.toggle.setText(self.TOGGLE_TEXT[compact])
+            self.gear.setText(self.GEAR_TEXT[compact])
 
     def set_worker(self, worker: CameraWorker | None, missing_text: str = "") -> None:
         self.worker = worker
@@ -205,7 +273,17 @@ class CameraView(QFrame):
 
     def set_recording(self, on: bool) -> None:
         self._recording = on
-        self.rec.setText("<span style='color:#d00'>● REC</span>" if on else "")
+        self._show_title()
+
+    def set_title(self, title: str) -> None:
+        self._title = title
+        self._show_title()
+
+    def _show_title(self) -> None:
+        # The REC mark is part of the title so that it never needs extra width.
+        self.title.set_full_text(("● REC  " if self._recording else "") + self._title)
+        self.title.setStyleSheet("color:#d00;" if self._recording else "")
+        self._fit_header()
 
     def set_off(self, off: bool) -> None:
         """Grey the view out when this camera will not be recorded (its arena or
@@ -217,7 +295,9 @@ class CameraView(QFrame):
         if self.worker is None:
             self._show_placeholder()
 
-    def refresh(self, extra_status: str = "") -> None:
+    def refresh(self, first_status: str = "") -> None:
+        """Draw the newest frame and the status line. ``first_status`` goes at the
+        start of the line, where it stays visible when the line is cut short."""
         w = self.worker
         if w is None:
             return
@@ -227,12 +307,15 @@ class CameraView(QFrame):
             pm = gray_to_pixmap(frame, self.image.width(), self.image.height())
             self.image.setPixmap(greyed_out(pm, self.OFF_TEXT) if self._off else pm)
         if w.status == "error":
-            self.status.setText(f"<span style='color:#c00'>{w.error}</span>")
+            text = f"<span style='color:#c00'>{w.error}</span>"
         elif w.status == "opening":
-            self.status.setText("Opening camera…")
+            text = "Opening camera…"
         else:
             nw, nh = w.native_size
             size = f"{nw}x{nh}" if nw else "?"
             warn = ("" if (nw, nh) in ((OUTPUT_WIDTH, OUTPUT_HEIGHT), (0, 0))
                     else f" (resized to {OUTPUT_WIDTH}x{OUTPUT_HEIGHT})")
-            self.status.setText(f"Camera: {w.measured_fps:4.1f} fps, {size}{warn}{extra_status}")
+            text = f"{first_status}Camera: {w.measured_fps:4.1f} fps, {size}{warn}"
+        if text != self.status.text():
+            self.status.setText(text)
+            self.status.setToolTip(text)

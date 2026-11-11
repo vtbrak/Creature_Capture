@@ -2,7 +2,7 @@
 rem Creature Capture - install (or update) the conda environment on Windows.
 rem Double-click to run.
 setlocal
-cd /d "%~dp0"
+cd /d "%~dp0app"
 set "ENV_NAME=creature_capture"
 
 call scripts\find_conda.bat
@@ -24,7 +24,7 @@ echo.
 echo Running self-test...
 python run_creature_capture.py --self-test
 echo.
-echo Done. Start the program with run_windows.bat
+echo Done. Start the program with "Creature Capture.bat"
 pause
 exit /b 0
 
