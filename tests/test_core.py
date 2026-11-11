@@ -210,7 +210,18 @@ def test_standard_assay_names_and_object_recognition(tmp_path):
     settings = Settings.load(tmp_path / "s.json")
     from creature_capture.config import standard_assay
     assert standard_assay(settings.assay("Elevated Plus")) == "Elevated Plus Maze"
-    assert standard_assay(settings.assay("Puzzle Box")) == ""
+    assert standard_assay(settings.assay("Puzzle Box")) == "Puzzle Box"
+    # Saved by an earlier version as "Other": picked up by name now it is in the list.
+    assert standard_assay({"name": "Puzzle Box", "standard_assay": ""}) == "Puzzle Box"
+    assert standard_assay({"name": "Pilot maze", "standard_assay": ""}) == ""
+
+    # Sessions per trial day: the assay type's default, unless the experiment says otherwise.
+    from creature_capture.config import has_sessions
+    assert has_sessions(settings.assay("Puzzle Box"))
+    assert not has_sessions(settings.assay("Open Field"))
+    assert not has_sessions(settings.assay("Elevated Plus"))
+    assert has_sessions({"name": "Open Field", "multiple_sessions": True})
+    assert not has_sessions({"name": "Puzzle Box", "multiple_sessions": False})
     # An experiment saved by 0.1.0 has no standard_assay key: mapped from its name.
     assert standard_assay({"name": "Elevated Plus"}) == "Elevated Plus Maze"
     assert standard_assay({"name": "open field"}) == "Open Field"

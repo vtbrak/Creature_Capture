@@ -6,12 +6,14 @@ import copy
 import re
 
 from PySide6.QtWidgets import (
-    QComboBox, QDialog, QDialogButtonBox, QDoubleSpinBox, QFormLayout, QHBoxLayout,
+    QCheckBox, QComboBox, QDialog, QDialogButtonBox, QDoubleSpinBox, QFormLayout, QHBoxLayout,
     QHeaderView, QLabel, QLineEdit, QMessageBox, QPushButton, QTableWidget,
     QTableWidgetItem, QVBoxLayout,
 )
 
-from creature_capture.config import STANDARD_ASSAYS, Settings, standard_assay
+from creature_capture.config import (
+    STANDARD_ASSAYS, Settings, has_sessions, sessions_default, standard_assay,
+)
 from creature_capture.recorder import camera_label
 from creature_capture.records import safe_name
 
@@ -37,6 +39,14 @@ class AssayEditor(QDialog):
         self.std_assay.setToolTip(
             "Written as \"assay\" in the info file so Track Tamer sets the test type. "
             "For \"Other\", the experiment name is written and Track Tamer asks.")
+        self.sessions = QCheckBox("More than one session per trial day")
+        self.sessions.setChecked(has_sessions(a))
+        self.sessions.setToolTip(
+            "Ticked: the Record tab asks for Trial day and Session that day.\n"
+            "Unticked: it asks for Trial day only.")
+        # Picking an assay type sets its usual answer; it can still be changed.
+        self.std_assay.currentIndexChanged.connect(
+            lambda: self.sessions.setChecked(sessions_default(self.std_assay.currentData())))
         self.folder = QLineEdit(a["folder"])
         self.folder.setPlaceholderText("e.g. NovelObject (folder inside the base folder)")
         self.durations = QLineEdit(", ".join(f"{d:g}" for d in a["durations"]))
@@ -47,6 +57,7 @@ class AssayEditor(QDialog):
         form = QFormLayout()
         form.addRow("Name", self.name)
         form.addRow("Assay type", self.std_assay)
+        form.addRow("Sessions", self.sessions)
         form.addRow("Output folder", self.folder)
         form.addRow("Length choices (min)", self.durations)
         form.addRow("Default length (min)", self.default)
@@ -159,6 +170,7 @@ class AssayEditor(QDialog):
                 del c["cam"]
         self.result_assay = {
             "name": name, "standard_assay": self.std_assay.currentData(),
+            "multiple_sessions": self.sessions.isChecked(),
             "folder": folder, "durations": durations,
             "default_duration": self.default.value(),
             "arenas": [{"name": k, "cameras": v} for k, v in arenas.items()],

@@ -72,6 +72,11 @@ whether the NVIDIA encoder works, and the result of a 3-second test recording.
 
 After a trial the Animal ID and Notes are cleared, ready for the next animal; other fields are kept.
 
+**Trial day** is the same pick-or-type list (1, 2, 3, …) for every experiment. Experiments with
+more than one session per trial day (Puzzle Box, or any experiment with that box ticked in
+Settings → Experiments) also show **Session that day**, with the same list. Experiments with one
+session per day show Trial day only, and no session is saved for them.
+
 ## What gets saved
 
 For an open field trial started at 14:32:07 on 5 Nov 2026 (with date subfolders on):
@@ -110,14 +115,15 @@ by itself. In short:
 * `schema_version` (`1`), `app_name`, `app_version`, and `date` and `start_time` from this
   computer's clock.
 * `assay`: the experiment's **Assay type** (Settings → Experiments), written exactly as in the
-  standard: `Open Field`, `Elevated Plus Maze`, `Object Recognition`, … An experiment set to
-  *Other* (e.g. Puzzle Box) writes its own name. `assay_variant` and `phase` come from that
+  standard: `Open Field`, `Elevated Plus Maze`, `Object Recognition`, `Puzzle Box`, … An
+  experiment set to *Other* (e.g. a pilot) writes its own name. `assay_variant` and `phase` come from that
   assay's own lists and are chosen on the Record tab; the choices appear only for assays that
   have them (e.g. Object Recognition: variant *Novel Object Recognition* or *Spatial Object
   Recognition*, phase *Habituation*, *Training* or *Test*).
 * `arena`, `experimenter`, `cohort` (shown as *Cohort / litter*), `animal_id`, `sex` (`F`, `M`,
   or `U` when not recorded), `strain`, `dob`, `treatment`, `trial_day` (day of a multi-day
-  trial), `session_number` (which session that day), `notes`, `duration_set_min`,
+  trial), `session_number` (which session that day; only for experiments with more than one
+  session per trial day, such as Puzzle Box), `notes`, `duration_set_min`,
   `duration_actual_s` and `stopped_early` (`true`/`false`). Blank fields are left out.
 * Object Recognition only: `objects`, one per object with `name` (`object 1`, …), `identity`,
   `kind` (`Familiar`, `Novel`, `Moved`) and `position`, entered on the Record tab per arena.
@@ -167,7 +173,7 @@ If the app or PC crashes, the next time Creature Capture starts it offers to con
 ## Adding experiments
 
 **Settings → Experiments → New…**: give it a name, an **assay type** (from the Track Tamer list,
-or *Other*), an output folder, length choices, and one row per camera (arena name, camera
+or *Other*), whether it has **more than one session per trial day**, an output folder, length choices, and one row per camera (arena name, camera
 position, camera label). Rows with the same arena name share one animal. Arena names and camera
 labels may use only letters, digits and `-`.
 

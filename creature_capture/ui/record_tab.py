@@ -17,7 +17,8 @@ from PySide6.QtWidgets import (
 from creature_capture import records
 from creature_capture.camera import effective_controls
 from creature_capture.config import (
-    OBJECT_KINDS, OUTPUT_FPS, Settings, animals_path, assay_phases, assay_variants, standard_assay,
+    OBJECT_KINDS, OUTPUT_FPS, Settings, animals_path, assay_phases, assay_variants, has_sessions,
+    standard_assay,
 )
 from creature_capture.recorder import CameraJob, RecordingSession, format_elapsed
 from creature_capture.ui.camera_controls import CameraControlsDialog
@@ -61,7 +62,7 @@ class AnimalForm(QGroupBox):
     than one arena, so an unused arena can be switched off before starting."""
 
     def __init__(self, arena_name: str, checkable: bool, animals: list[dict],
-                 objects: bool = False, parent=None):
+                 objects: bool = False, sessions: bool = False, parent=None):
         super().__init__(f"{arena_name} - animal", parent)
         self.arena_name = arena_name
         self.setCheckable(checkable)
@@ -84,9 +85,19 @@ class AnimalForm(QGroupBox):
             form.addRow("Animal list", self.pick)
 
         for key, label, required in records.ANIMAL_FIELDS:
+            if key == "session_number" and not sessions:
+                continue  # one session per trial day: nothing to ask
             if key == "sex":
                 w = QComboBox()
                 w.addItems(["", "M", "F", "Unknown"])
+            elif key in ("trial_day", "session_number"):
+                # The same pick-or-type number list for every experiment.
+                w = QComboBox()
+                w.setEditable(True)
+                w.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+                w.addItems([""] + [str(n) for n in range(1, 11)])
+                w.setValidator(QIntValidator(1, 9999))
+                w.setToolTip("Pick a number or type one.")
             elif key == "dob":
                 w = QDateEdit()
                 w.setCalendarPopup(True)
@@ -99,10 +110,6 @@ class AnimalForm(QGroupBox):
                 w.setFixedHeight(48)
             else:
                 w = QLineEdit()
-                if key in ("trial_day", "session_number"):
-                    w.setValidator(QIntValidator(0, 9999))
-                    w.setPlaceholderText("1, 2, ..." if key == "trial_day"
-                                         else "only if more than one session a day")
             self.fields[key] = w
             form.addRow(f"{label}{' *' if required else ''}", w)
 
@@ -369,7 +376,8 @@ class RecordTab(QWidget):
         self.forms.clear()
         multi = len(assay["arenas"]) > 1
         for arena in assay["arenas"]:
-            form = AnimalForm(arena["name"], multi, self.animals, objects=std == "Object Recognition")
+            form = AnimalForm(arena["name"], multi, self.animals,
+                              objects=std == "Object Recognition", sessions=has_sessions(assay))
             if arena["name"] in old:
                 values, active = old[arena["name"]]
                 form.set_values(values)

@@ -22,7 +22,7 @@ ANIMAL_FIELDS = [
     ("dob", "DOB", False),
     ("treatment", "Treatment / group", False),
     ("trial_day", "Trial day", False),
-    ("session_number", "Session # that day", False),
+    ("session_number", "Session that day", False),  # only for experiments with sessions
     ("notes", "Notes", False),
 ]
 LOG_COLUMNS = [

@@ -8,8 +8,10 @@ the apps. It stays a draft until the user says otherwise; while it's a draft,
 changes don't raise `schema_version`. Reading it in Track Tamer is planned
 for after Track Tamer 1.0.
 
-Apps covered so far: **Creature Capture** (see "Apps" at the end). Others
-will be added as their analyses come into Track Tamer.
+Apps covered so far: **Creature Capture**, **Boom Box** and **Pellet
+Paparazzi** (see "Apps" at the end). Apps whose videos Track Tamer doesn't
+analyze follow it too, where the fields apply, so every lab data file has
+the same fields with the same names.
 
 ---
 
@@ -45,12 +47,14 @@ confirms. So: write bare file names (no folders), exactly as on disk, and
 keep videos and their info file together.
 
 **Reserved endings.**
-- For the apps: `_info.json`, `_info.csv`, `_frames.csv`.
+- For the apps: `_info.json`, `_info.csv`, `_frames.csv`, `_trials.csv`.
 - For Track Tamer's own files (added to a video's name, so apps must not use
   them): `_LocationOutput.csv`, `_reference.png`, `_ObjectScoring.csv`,
-  `_analysis.xlsx`, `_path.png`, `_heatmap.png`, `_tracked.mp4`.
+  `_analysis.xlsx`, `_path.png`, `_heatmap.png`, `_tracked.mp4`,
+  `_MotionIndex.csv`, `_trace.png`, `_aligned.png`.
 
-Track Tamer skips `_frames.csv` and `_info.csv` when a folder is added.
+Track Tamer skips `_frames.csv`, `_info.csv` and `_trials.csv` when a folder is
+added.
 
 ---
 
@@ -132,7 +136,8 @@ case and spaces at the ends.
 | `Object Recognition` | built | `Novel Object Recognition`, `Spatial Object Recognition` | `Habituation`, `Training`, `Test` |
 | `Acoustic Startle Response` | planned (ROADMAP §13) | `Prepulse Inhibition`, `Startle Habituation` | |
 | `Conditioned Place Preference` | planned | | `Pretest`, `Conditioning`, `Test` |
-| `Fear Conditioning` | planned (freezing, ROADMAP §12) | | `Training`, `Context Test`, `Cue Test` |
+| `Puzzle Box` | not decided (listed so the name is the same everywhere) | | |
+| `Skilled Reaching` | not analyzed in Track Tamer (listed for consistency) | | |
 
 Variants of one assay share Track Tamer's analysis: an object trial is
 analyzed the same way whichever variant it is (the user marks each object
@@ -141,8 +146,10 @@ Summary, so trials can be told apart, which matters in Habituation and
 Training, when every object is familiar.
 
 New assays, variants and phases are added to this table as Track Tamer
-analyzes them. An app may record an assay that isn't listed (e.g. a pilot);
-Track Tamer then asks the user to choose the test.
+analyzes them, or when a lab app records them (so the names stay the same
+everywhere), even if Track Tamer never analyzes them. An app may record an
+assay that isn't listed (e.g. a pilot); Track Tamer then asks the user to
+choose the test.
 
 ---
 
@@ -222,13 +229,23 @@ Written only for those assays.
 Track Tamer gives the objects, so each object's type can be matched. Track
 Tamer sets each object's type; the user draws the circles.
 
-### Acoustic Startle Response (planned)
-`stimuli`: one entry per trial with `frame`, `video_time_s`, `type`
-(`pulse`, `prepulse+pulse`, `prepulse`, `none`), `pulse_db`, `prepulse_db`,
-`interval_ms`. Settled when Track Tamer's startle analysis is built.
+### Acoustic Startle Response
+`stimuli`: one entry per trial that took place, in order.
 
-### Fear Conditioning (planned)
-To be added when freezing analysis is built (e.g. tone and shock times).
+| Field | Type | What it is |
+|---|---|---|
+| `frame` | number | video frame at the event time, from 0 (required) |
+| `video_time_s` | number | event time, seconds from frame 0. Track Tamer's windows use this when present |
+| `type` | text | `pulse`, `prepulse+pulse`, `prepulse` or `none` |
+| `pulse_db`, `prepulse_db` | number | levels in dB SPL (absolute, not above background) |
+| `interval_ms` | number | prepulse onset to pulse onset (`prepulse+pulse` only) |
+| `pulse_freq_hz` | number | tone frequency; left out for noise |
+| `pulse_stimulus` | text | `tone` or `noise` |
+
+For `prepulse+pulse` the event time is the **pulse**; the prepulse started
+`interval_ms` earlier. Track Tamer's startle window starts at the event time.
+Its baseline window ends at the event time, or at the prepulse onset on
+`prepulse+pulse` trials.
 
 ### Conditioned Place Preference (planned)
 To be added when its analysis is built (e.g. which chamber was paired with
@@ -270,6 +287,14 @@ confined to in a conditioning session).
   the JSON. Then removed (not recorded in the lab): `weight_g`, `cage`,
   `ear_tag`, dose fields, `arena_size_cm`,
   `environment`; `cohort` is labeled "Cohort / litter".
+- **Schema 1 (draft, 2026-11-09):** startle `stimuli` settled from Boom Box
+  1.1, with `pulse_freq_hz` and `pulse_stimulus` added.
+- **Schema 1 (draft, 2026-11-10):** `Fear Conditioning` removed from the
+  assay list (user: it won't be captured). An info file that still says it
+  is treated like any assay not on the list.
+- **Schema 1 (draft, 2026-11-10):** `Puzzle Box` added to the assay list
+  (user). It has trial days and several sessions on each day, so its files
+  carry `trial_day` and `session_number`; no variant or phase.
 
 ---
 
@@ -279,36 +304,50 @@ confined to in a conditioning session).
 Writes `<date>_<time>_<arena>_info.json` (and `_info.csv`) per arena per
 trial, one MP4 and one `_frames.csv` per camera.
 
-**Already matches** (done in Creature Capture after the first draft):
-`schema_version` and `app_name`; assay names from a dropdown; numbers and
-`true`/`false` types, blank fields left out; arena names without spaces or
-`_`, and videos named `<date>_<time>_<arena>_<camera label>.mp4`; per-camera
-`fps_set`, `fps_measured`, `width_px`, `height_px`, numeric
-`repeated_frames`; `phase` and `objects` for object trials; frames counted
-from 0 in `repeated_frame_indices` and `_frames.csv` (confirmed); the JSON
-written in one go.
+**Matches the revised schema 1 draft** (reported by Creature Capture,
+2026-11-06; committed and pushed, confirmed 2026-11-10). Its `fps_measured`
+is measured from the recording clock: (frames - 1) / (last tick - first
+tick). Its assay list is the section 3 list without `Skilled Reaching`,
+plus Other. For `Puzzle Box` it writes arena `PuzzleBox` and camera
+`Overhead`, with `trial_day` and `session_number`:
+- `schema_version`, `app_name`, `app_version`; `date` and `start_time` from
+  the recording computer (no `start_wall_clock`).
+- `assay`, `assay_variant` and `phase` from each assay's own lists in
+  section 3, shown on its Record tab only when the assay has them; values
+  outside a list are dropped.
+- `trial_day` and `session_number`; `sex` F, M or U; `cohort` labeled
+  "Cohort / litter"; numbers and `true`/`false` types; blank fields left out.
+- Arena names and camera labels use letters, digits and `-` only (the
+  editor enforces it, and output is cleaned); videos named
+  `<date>_<time>_<arena>_<camera label>.mp4`.
+- Each camera: `camera_position` and `camera_settings` (the `encoder` and
+  every control, defaults filled in), `fps_set`, `fps_measured`,
+  `width_px`, `height_px`, numeric `repeated_frames`, frames counted from 0,
+  `error` left out when empty.
+- `objects` for object trials. The `creature_capture` object holds only
+  `experiment` and `gpu`.
+- None of the fields left out of the standard (weight, cage, ear tag, dose,
+  arena size, environment).
+- The JSON is written in one go.
 
-**To change for this revision:**
-1. **Variants:** keep `assay` + `assay_variant`, with the object variants
-   renamed `Novel Object Recognition` and `Spatial Object Recognition`
-   (section 3). Show the Variant choice only for assays that have variants.
-2. **Phase for every assay that has one** (section 3): `Conditioned Place
-   Preference` and `Fear Conditioning` too, from their own lists.
-3. **Remove `start_wall_clock`**; `date` and `start_time` from the recording
-   computer's clock are the start.
-4. **Keep `trial_day`** (day of a multi-day trial) and **add
-   `session_number`** (which session that day, for more than one session in
-   a day).
-5. **Sex:** write `U` when it's unknown or not recorded, instead of leaving
-   it out.
-6. **Cameras:** rename `slot` to `camera_position`, and move it and
-   `camera_settings` out of `creature_capture` into each camera's entry
-   (standard fields). Every camera writes both, even when nothing was
-   changed. Put `encoder` inside `camera_settings`.
-7. **Camera labels** use letters, digits and `-` only.
-8. **`error`:** leave it out when there's no error (no `""`).
-9. **Fields not in the standard:** `weight_g`, `cage`, `ear_tag`, dose
-   fields, `arena_size_cm`, `environment`. Don't add them.
-10. **Cohort:** label the box "Cohort / litter" (the field stays `cohort`).
+Creature Capture keeps a copy of this file (`Creature_Capture/metadata_standard.md`),
+taken from GitHub; refresh it from GitHub whenever the standard changes.
+
+### Boom Box
+Acoustic startle recording. `assay` = `Acoustic Startle Response` (variants
+`Prepulse Inhibition`, `Startle Habituation`); arena `ASR1`, camera label
+`Side`. App-only fields in `boom_box`. Boom Box 1.1's full data guide is its
+`TRACK_TAMER_DATA.md`.
+
+**To change:** add `pulse_freq_hz` and `pulse_stimulus` to each `stimuli`
+entry (section 5). Until then Track Tamer reads them from `boom_box.trials`,
+which lines up with `stimuli` by position.
+
+### Pellet Paparazzi
+Skilled reaching recording. **Not analyzed in Track Tamer** (the task and
+its analysis are different); it follows this standard where the fields
+apply, so its data files match the rest of the lab's. `assay` =
+`Skilled Reaching`. App-only fields in `pellet_paparazzi`. Its fields will
+be listed here once its info file is written.
 
 <!-- Add a section here for each new app as it's brought in. -->

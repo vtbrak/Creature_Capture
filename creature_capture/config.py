@@ -63,7 +63,9 @@ def default_base_path() -> str:
 # section 3), each with its fixed lists of variants and phases. The info
 # JSON's "assay" must be exactly one of these names for Track Tamer to set the
 # test type; "assay_variant" and "phase" come from that assay's lists.
-STANDARD_ASSAYS: dict[str, dict[str, list[str]]] = {
+# "sessions": the assay normally has more than one session per trial day, so
+# the Record tab asks for the session as well as the trial day.
+STANDARD_ASSAYS: dict[str, dict] = {
     "Elevated Plus Maze": {"variants": [], "phases": []},
     "Open Field": {"variants": [], "phases": []},
     "Object Recognition": {"variants": ["Novel Object Recognition", "Spatial Object Recognition"],
@@ -72,9 +74,10 @@ STANDARD_ASSAYS: dict[str, dict[str, list[str]]] = {
                                   "phases": []},
     "Conditioned Place Preference": {"variants": [],
                                      "phases": ["Pretest", "Conditioning", "Test"]},
+    "Puzzle Box": {"variants": [], "phases": [], "sessions": True},
 }
-# The standard also lists Fear Conditioning; it is not recorded with this app,
-# so it is not offered here.
+# Only the assays recorded with this app are offered. The standard also lists
+# Skilled Reaching, which is recorded with another app (Pellet Paparazzi).
 OBJECT_KINDS = ["Familiar", "Novel", "Moved"]
 
 
@@ -92,14 +95,28 @@ _ASSAY_ALIASES = {"elevated plus": "Elevated Plus Maze", "epm": "Elevated Plus M
 
 def standard_assay(assay: dict) -> str:
     """The standard assay name for an experiment, or "" if it isn't one of
-    them (then the experiment's own name is written and Track Tamer asks)."""
-    if "standard_assay" in assay:
-        return assay["standard_assay"] or ""
+    them (then the experiment's own name is written and Track Tamer asks).
+    An experiment with no assay type set is matched by its name, which also
+    picks up assays added to the list after the experiment was saved."""
+    if assay.get("standard_assay"):
+        return assay["standard_assay"]
     name = assay.get("name", "").strip().lower()
     for std in STANDARD_ASSAYS:
         if std.lower() == name:
             return std
     return _ASSAY_ALIASES.get(name, "")
+
+
+def sessions_default(std: str) -> bool:
+    return bool(STANDARD_ASSAYS.get(std, {}).get("sessions", False))
+
+
+def has_sessions(assay: dict) -> bool:
+    """Does this experiment run more than one session per trial day? The
+    experiment's own setting if it has one, else its assay type's default."""
+    if "multiple_sessions" in assay:
+        return bool(assay["multiple_sessions"])
+    return sessions_default(standard_assay(assay))
 
 
 DEFAULT_SLOTS = [
@@ -146,7 +163,7 @@ DEFAULT_ASSAYS = [
     },
     {
         "name": "Puzzle Box",
-        "standard_assay": "",  # not in the standard: written as "Puzzle Box"
+        "standard_assay": "Puzzle Box",
         "folder": "PuzzleBox",
         "durations": [5, 10, 15, 20, 30],
         "default_duration": 10,

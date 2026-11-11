@@ -54,6 +54,21 @@ def test_main_window_with_sim_cameras(app, tmp_path):
     rec.assay_combo.setCurrentText("Elevated Plus")
     assert list(rec.views) == ["Overhead"]
     assert list(rec.forms) == ["EPM"]
+    # One session per trial day: Trial day only, as a pick-or-type list.
+    epm = rec.forms["EPM"].fields
+    assert "trial_day" in epm and "session_number" not in epm
+    day_choices = [epm["trial_day"].itemText(i) for i in range(epm["trial_day"].count())]
+    assert day_choices == [""] + [str(n) for n in range(1, 11)]
+
+    # Puzzle Box has sessions within a day: same Trial day list, plus Session that day.
+    rec.assay_combo.setCurrentText("Puzzle Box")
+    pb = rec.forms["PuzzleBox"]
+    assert [pb.fields[k].itemText(i) for k in ("trial_day", "session_number")
+            for i in range(pb.fields[k].count())] == day_choices * 2
+    pb.fields["trial_day"].setCurrentText("3")
+    pb.fields["session_number"].setCurrentText("12")  # typing a number not in the list
+    assert (pb.values()["trial_day"], pb.values()["session_number"]) == ("3", "12")
+    rec.assay_combo.setCurrentText("Elevated Plus")
     assert not rec.variant.isVisibleTo(rec) and not rec.phase.isVisibleTo(rec)
     assert rec.forms["EPM"].objects is None
 
@@ -106,6 +121,12 @@ def test_assay_editor_labels_and_names(app, tmp_path, monkeypatch):
     cams = [c["label"] for a in ed.result_assay["arenas"] for c in a["cameras"]]
     assert cams == ["Arena1_Overhead", "Arena1_Horizontal", "Arena2_Overhead", "Arena2_Horizontal"]
     assert ed.result_assay["standard_assay"] == "Open Field"
+    assert ed.result_assay["multiple_sessions"] is False
+
+    ed = AssayEditor(s, s.assay("Puzzle Box"))
+    assert ed.std_assay.currentData() == "Puzzle Box" and ed.sessions.isChecked()
+    ed.std_assay.setCurrentIndex(ed.std_assay.findData("Open Field"))
+    assert not ed.sessions.isChecked()  # follows the assay type, and can still be changed
 
     ed = AssayEditor(s, s.assay("Elevated Plus"))
     ed.table.setItem(0, 2, QTableWidgetItem("Top_view"))
