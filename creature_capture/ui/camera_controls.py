@@ -11,7 +11,7 @@ from PySide6.QtWidgets import (
     QSlider, QSpinBox, QVBoxLayout, QWidget,
 )
 
-from creature_capture.camera import CONTROLS, CameraWorker, effective_controls
+from creature_capture.camera import CONTROLS, CameraWorker, default_controls, effective_controls
 from creature_capture.config import Settings
 from creature_capture.ui.common import CameraView
 
@@ -159,8 +159,6 @@ class CameraControlsDialog(QDialog):
             self.exposure_warn.setText("")
 
     def _reset(self) -> None:
-        from creature_capture.camera import default_controls
-
         d = default_controls()
         for c in CONTROLS:
             apply, val, _slider, _ = self.rows[c.key]

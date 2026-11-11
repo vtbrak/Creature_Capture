@@ -44,10 +44,8 @@ def encoder_works(name: str) -> bool:
 
 
 def choose_encoder(preference: str = "auto") -> str:
-    if preference in ("h264_nvenc", "libx264"):
-        if preference == "libx264" or encoder_works("h264_nvenc"):
-            return preference
-    if preference == "auto" and encoder_works("h264_nvenc"):
+    """NVIDIA GPU encoding unless the CPU encoder was chosen or NVENC isn't usable."""
+    if preference != "libx264" and encoder_works("h264_nvenc"):
         return "h264_nvenc"
     return "libx264"
 

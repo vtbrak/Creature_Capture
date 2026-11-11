@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+import threading
 import traceback
 from pathlib import Path
 
@@ -113,24 +114,38 @@ def recover_unfinished(parent, settings: Settings) -> None:
                             + "\n\nThese files can usually still be played as they are.")
 
 
-def _excepthook(exc_type, exc, tb) -> None:
+def _log_error(exc_type, exc, tb) -> str:
+    """Append an unexpected error to error.log in the settings folder."""
     text = "".join(traceback.format_exception(exc_type, exc, tb))
     try:
-        (app_data_dir() / "error.log").open("a", encoding="utf-8").write(text + "\n")
+        with open(app_data_dir() / "error.log", "a", encoding="utf-8") as f:
+            f.write(text + "\n")
     except OSError:
         pass
     sys.__excepthook__(exc_type, exc, tb)
+    return text
+
+
+def _excepthook(exc_type, exc, tb) -> None:
+    text = _log_error(exc_type, exc, tb)
     if QApplication.instance():
         QMessageBox.critical(None, "Unexpected error", text[-2000:])
 
 
+def _thread_excepthook(args) -> None:
+    # Camera / recording threads: log only (no dialogs outside the GUI thread);
+    # the camera feed or the end-of-recording summary shows the problem.
+    _log_error(args.exc_type, args.exc_value, args.exc_traceback)
+
+
 def main() -> None:
+    _windows_tuning()  # before the self-test too, so its clock figures match real use
     if "--self-test" in sys.argv:
         from creature_capture import selftest
 
         sys.exit(selftest.run())
     sys.excepthook = _excepthook
-    _windows_tuning()
+    threading.excepthook = _thread_excepthook
     app = QApplication(sys.argv)
     app.setApplicationName(APP_NAME)
     app.setStyle("Fusion")

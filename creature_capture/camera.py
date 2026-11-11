@@ -12,6 +12,7 @@ import math
 import sys
 import threading
 import time
+from collections import deque
 from dataclasses import dataclass
 
 import cv2
@@ -65,7 +66,6 @@ CONTROLS: list[ControlDef] = [
     ControlDef("wb_temperature", "White balance (K)", cv2.CAP_PROP_WB_TEMPERATURE, "int",
                2800, 6500, 4600),
 ]
-CONTROL_BY_KEY = {c.key: c for c in CONTROLS}
 
 
 def default_controls() -> dict:
@@ -111,7 +111,7 @@ class CameraWorker(threading.Thread):
         self.native_size = (0, 0)
         self.measured_fps = 0.0
         self.read_values: dict[str, float] = {}
-        self._fps_window: list[float] = []
+        self._fps_window: deque[float] = deque()  # frame times in the last 2 s
 
     # ------------------------------------------------------------- public
     def latest(self) -> tuple[np.ndarray | None, int, float]:
@@ -146,12 +146,12 @@ class CameraWorker(threading.Thread):
             self._frame = frame
             self._seq += 1
             self._t = t
-        self._fps_window.append(t)
-        while self._fps_window and t - self._fps_window[0] > 2.0:
-            self._fps_window.pop(0)
-        if len(self._fps_window) > 1:
-            span = self._fps_window[-1] - self._fps_window[0]
-            self.measured_fps = (len(self._fps_window) - 1) / span if span > 0 else 0.0
+        win = self._fps_window
+        win.append(t)
+        while t - win[0] > 2.0:
+            win.popleft()
+        span = t - win[0]
+        self.measured_fps = (len(win) - 1) / span if span > 0 else 0.0
 
     def _take_pending(self):
         with self._lock:
@@ -159,10 +159,14 @@ class CameraWorker(threading.Thread):
         return items
 
     def run(self) -> None:
-        if self.device.kind == "sim":
-            self._run_sim()
-        else:
-            self._run_real()
+        try:
+            if self.device.kind == "sim":
+                self._run_sim()
+            else:
+                self._run_real()
+        except Exception as e:  # noqa: BLE001 - show it on the feed instead of dying silently
+            self.status, self.error = "error", f"Camera stopped: {e!r}"
+            raise
 
     def _open(self):
         cap = cv2.VideoCapture(self.device.index, backend_api())
@@ -181,10 +185,9 @@ class CameraWorker(threading.Thread):
 
     def _apply(self, cap, controls: dict) -> None:
         controls = effective_controls(controls)
-        # Auto modes first so manual values are not overridden afterwards.
-        order = sorted(CONTROLS, key=lambda c: 0 if c.kind == "bool" else 1)
-        for c in order:
-            entry = controls.get(c.key, {})
+        # Auto modes (the bool controls) first so manual values are not overridden.
+        for c in sorted(CONTROLS, key=lambda c: c.kind != "bool"):
+            entry = controls[c.key]
             if not entry.get("apply"):
                 continue
             val = entry.get("value", c.default)

@@ -89,17 +89,14 @@ def _list_windows() -> list[DeviceInfo]:
             capture_output=True,
             text=True,
             timeout=15,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            creationflags=ffmpeg_util.NO_WINDOW,
         )
         text = proc.stderr + proc.stdout
     except (OSError, subprocess.TimeoutExpired):
         text = ""
-    out = []
-    for idx, (name, path) in enumerate(parse_dshow_listing(text)):
-        out.append(DeviceInfo(id=path, name=name, index=idx))
-    if not out:
-        out = _probe_opencv(max_index=8)
-    return out
+    out = [DeviceInfo(id=path, name=name, index=idx)
+           for idx, (name, path) in enumerate(parse_dshow_listing(text))]
+    return out or _probe_opencv(max_index=8)
 
 
 def _probe_opencv(max_index: int = 6) -> list[DeviceInfo]:

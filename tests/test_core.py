@@ -150,7 +150,7 @@ def test_trial_records_and_master_log(tmp_path):
                            "trial_day": "2", "session_number": "1", "strain": ""},
                 "Arena2": {"animal_id": "M2", "sex": "Unknown"}},
         results=results, duration_set_min=10, duration_actual_s=s.elapsed_s,
-        stopped_early=False, start_wall=s.start_wall, encoder="libx264",
+        stopped_early=False, encoder="libx264",
         camera_settings={results[0].slot_id: {"enabled": True,
                                               "controls": {"gain": {"apply": True, "value": 12}}}},
         master_log=log)
@@ -178,7 +178,8 @@ def test_trial_records_and_master_log(tmp_path):
     assert [c["label"] for c in cams] == ["Cam0", "Cam1"]
     assert cams[0]["video"] == "2026-11-05_14-32-07_Arena1_Cam0.mp4"
     assert cams[0]["timestamps_csv"] == "2026-11-05_14-32-07_Arena1_Cam0_frames.csv"
-    assert cams[0]["fps_set"] == 20 and cams[0]["fps_measured"] == 20.0
+    assert cams[0]["fps_set"] == 20
+    assert cams[0]["fps_measured"] == pytest.approx(20, abs=0.5)  # measured from the clock
     assert (cams[0]["width_px"], cams[0]["height_px"]) == (800, 600)
     assert cams[0]["frames"] == cams[0]["verified_frames_in_file"] == 10
     assert cams[0]["repeated_frames"] == 0 and cams[0]["repeated_frame_indices"] == []
@@ -225,7 +226,7 @@ def test_standard_assay_names_and_object_recognition(tmp_path):
             {"identity": "glass bottle", "kind": "Familiar", "position": "top left"},
             {"identity": "lego tower", "kind": "Novel", "position": ""}]}},
         results=results, duration_set_min=5, duration_actual_s=s.elapsed_s,
-        stopped_early=True, start_wall=s.start_wall, encoder="h264_nvenc",
+        stopped_early=True, encoder="h264_nvenc",
         camera_settings={}, master_log=tmp_path / "NOR_log.csv")
     info = json.loads((tmp_path / "2026-11-05_14-32-07_Arena1_info.json").read_text())
     assert info["assay"] == "Object Recognition"
@@ -258,7 +259,7 @@ def test_old_master_log_header_upgraded(tmp_path):
 def test_phase_and_variant_only_from_the_assays_lists(tmp_path):
     s, results = _record(tmp_path, [_FakeWorker()], seconds=0.3)
     common = dict(out_dir=tmp_path, stamp=s.stamp, results=results, duration_set_min=5,
-                  duration_actual_s=s.elapsed_s, stopped_early=False, start_wall=s.start_wall,
+                  duration_actual_s=s.elapsed_s, stopped_early=False,
                   encoder="libx264", camera_settings={}, master_log=tmp_path / "log.csv")
     fc = {"name": "FC", "standard_assay": "Fear Conditioning", "folder": "FC", "arenas": []}
     records.write_trial_records(assay=fc, arenas={"Arena1": {"animal_id": "M1"}},
@@ -279,3 +280,75 @@ def test_camera_labels_in_file_names():
     assert camera_label("Arena1_Overhead", "Arena1") == "Overhead"
     assert camera_label("Overhead", "EPM") == "Overhead"
     assert camera_label("Side view_2", "A") == "Side-view-2"
+
+
+def test_encoder_dying_mid_recording_is_reported_not_piled_up(tmp_path):
+    jobs = [CameraJob("Cam0", "Arena1", "s0", _FakeWorker())]
+    s = RecordingSession(jobs, tmp_path, datetime(2026, 11, 5, 14, 32, 7), 1.5, "libx264", 23, {})
+    s.start()
+    time.sleep(0.4)
+    s._writers[0].proc.kill()  # e.g. the GPU encoder crashes
+    s.wait_clock()
+    assert s.frames_done == 30  # the clock (and the other cameras) carry on
+    assert s._writers[0].q.qsize() < 5  # frames for the dead encoder are not kept in memory
+    res = s.finalize()[0]
+    assert res.error
+
+
+def test_failed_start_leaves_nothing_behind(tmp_path, monkeypatch):
+    from creature_capture import recorder
+
+    real, calls = recorder._VideoWriter, []
+
+    def flaky(*args):
+        if calls:
+            raise OSError("cannot start encoder")
+        calls.append(1)
+        return real(*args)
+
+    monkeypatch.setattr(recorder, "_VideoWriter", flaky)
+    jobs = [CameraJob(f"Cam{i}", "Arena1", f"s{i}", _FakeWorker()) for i in range(2)]
+    s = RecordingSession(jobs, tmp_path, datetime(2026, 11, 5, 14, 32, 7), 1.0, "libx264", 23, {})
+    with pytest.raises(OSError):
+        s.start()
+    assert not s.running and not list(tmp_path.iterdir())  # first camera's encoder cleaned up
+
+
+def test_measured_fps_comes_from_the_clock(tmp_path):
+    s, results = _record(tmp_path, [_FakeWorker()], seconds=1.0)
+    assert results[0].fps_measured == pytest.approx(20, abs=0.3)
+    assert results[0].fps_measured == s.fps_measured
+
+
+def test_master_log_resaved_by_excel_with_bom(tmp_path):
+    log = tmp_path / "log.csv"
+    records.append_master_log(log, {"date": "2026-11-01", "animal_id": "A"})
+    log.write_bytes(b"\xef\xbb\xbf" + log.read_bytes())  # Excel "CSV UTF-8" adds this
+    records.append_master_log(log, {"date": "2026-11-02", "animal_id": "B"})
+    rows = list(csv.DictReader(open(log, encoding="utf-8-sig")))
+    assert [(r["date"], r["animal_id"]) for r in rows] == [("2026-11-01", "A"), ("2026-11-02", "B")]
+
+
+def test_import_settings_without_base_path(tmp_path):
+    s = Settings.load(tmp_path / "s.json")
+    other = tmp_path / "other.json"
+    other.write_text(json.dumps({"quality": 25}))
+    s.import_from(other)
+    assert s["quality"] == 25 and s["base_path"]  # falls back to the default folder
+
+
+@pytest.mark.filterwarnings("ignore::pytest.PytestUnhandledThreadExceptionWarning")
+def test_clock_failure_ends_the_recording_with_an_error(tmp_path):
+    class _Broken(_FakeWorker):
+        def latest(self):
+            if self.seq >= 5:
+                raise RuntimeError("camera driver blew up")
+            return super().latest()
+
+    jobs = [CameraJob("Cam0", "Arena1", "s0", _Broken())]
+    s = RecordingSession(jobs, tmp_path, datetime(2026, 11, 5, 14, 32, 7), 2.0, "libx264", 23, {})
+    s.start()
+    assert s.wait_clock(5)
+    assert not s.running and s.stopped_early  # the app is not left stuck on "REC"
+    res = s.finalize()[0]
+    assert "internal error" in res.error and res.verified_frames == res.frames == 5

@@ -7,7 +7,7 @@ from datetime import datetime
 from pathlib import Path
 
 from PySide6.QtCore import QDate, QObject, Qt, QTimer, Signal
-from PySide6.QtGui import QDoubleValidator, QIntValidator
+from PySide6.QtGui import QDoubleValidator, QFontDatabase, QIntValidator
 from PySide6.QtWidgets import (
     QComboBox, QDateEdit, QFormLayout, QGridLayout, QGroupBox, QHBoxLayout, QHeaderView,
     QLabel, QLineEdit, QMessageBox, QPlainTextEdit, QPushButton, QScrollArea,
@@ -24,6 +24,36 @@ from creature_capture.ui.camera_controls import CameraControlsDialog
 from creature_capture.ui.common import CameraManager, CameraView, EncoderProbe, free_space_gb
 
 MB_PER_MIN_PER_CAMERA = 40  # generous estimate for disk-space checks
+
+
+_DATE_FORMATS = ("yyyy-MM-dd", "M/d/yyyy", "MM/dd/yyyy", "d/M/yyyy", "yyyy/MM/dd", "M/d/yy")
+
+
+def _field_text(w: QWidget) -> str:
+    """The value of one form field, as text ("" when blank)."""
+    if isinstance(w, QLineEdit):
+        return w.text().strip()
+    if isinstance(w, QComboBox):
+        return w.currentText().strip()
+    if isinstance(w, QPlainTextEdit):
+        return w.toPlainText().strip()
+    return "" if w.date() == w.minimumDate() else w.date().toString("yyyy-MM-dd")  # QDateEdit
+
+
+def _set_field_text(w: QWidget, v: str) -> None:
+    if isinstance(w, QLineEdit):
+        w.setText(v)
+    elif isinstance(w, QPlainTextEdit):
+        w.setPlainText(v)
+    elif isinstance(w, QComboBox):
+        i = w.findText(v, Qt.MatchFlag.MatchFixedString)
+        if i < 0 and v:
+            w.addItem(v)
+            i = w.count() - 1
+        w.setCurrentIndex(max(0, i))
+    else:  # QDateEdit: accept the usual spreadsheet date formats
+        dates = (QDate.fromString(v, fmt) for fmt in _DATE_FORMATS)
+        w.setDate(next((d for d in dates if d.isValid()), w.minimumDate()))
 
 
 class AnimalForm(QGroupBox):
@@ -125,43 +155,23 @@ class AnimalForm(QGroupBox):
 
     def _picked(self) -> None:
         a = self.pick.currentData()
-        if not a:
-            return
-        self.set_values(a)
+        if a:
+            self.set_values(a)
 
     def set_values(self, a: dict) -> None:
+        """Fill in the fields present in ``a`` (an animal-list row or values())."""
         for key, w in self.fields.items():
-            if key not in a:
-                continue
-            v = a[key]
-            if isinstance(w, QLineEdit):
-                w.setText(v)
-            elif isinstance(w, QComboBox):
-                i = w.findText(v, Qt.MatchFlag.MatchFixedString)
-                if i < 0 and v:
-                    w.addItem(v)
-                    i = w.count() - 1
-                w.setCurrentIndex(max(0, i))
-            elif isinstance(w, QDateEdit):
-                d = QDate.fromString(v, "yyyy-MM-dd")
-                if not d.isValid():
-                    for fmt in ("M/d/yyyy", "MM/dd/yyyy", "d/M/yyyy", "yyyy/MM/dd", "M/d/yy"):
-                        d = QDate.fromString(v, fmt)
-                        if d.isValid():
-                            break
-                w.setDate(d if d.isValid() else w.minimumDate())
+            if key in a:
+                _set_field_text(w, a[key])
+        if self.objects is not None and "objects" in a:
+            self.objects.setRowCount(0)
+            for o in a["objects"]:
+                self._add_object(**o)
+            while self.objects.rowCount() < 2:
+                self._add_object()
 
     def values(self) -> dict:
-        out = {}
-        for key, w in self.fields.items():
-            if isinstance(w, QLineEdit):
-                out[key] = w.text().strip()
-            elif isinstance(w, QComboBox):
-                out[key] = w.currentText().strip()
-            elif isinstance(w, QDateEdit):
-                out[key] = "" if w.date() == w.minimumDate() else w.date().toString("yyyy-MM-dd")
-            elif isinstance(w, QPlainTextEdit):
-                out[key] = w.toPlainText().strip()
+        out = {key: _field_text(w) for key, w in self.fields.items()}
         if self.objects is not None:
             out["objects"] = self.object_values()
         return out
@@ -191,15 +201,38 @@ class RecordTab(QWidget):
         self.session: RecordingSession | None = None
         self.session_meta: dict = {}
         self.finalizing = False
-        self.views: dict[str, CameraView] = {}  # camera label -> view
-        self.view_slot: dict[str, str] = {}  # camera label -> slot id
-        self.view_arena: dict[str, str] = {}
+        self.views: dict[str, CameraView] = {}  # camera label -> view (with .slot_id, .arena)
         self.forms: dict[str, AnimalForm] = {}
         self.animals: list[dict] = []
         self._finisher = _Finisher()
         self._finisher.finished.connect(self._on_finalized)
 
-        # ---- top bar
+        # camera grid on the right
+        self.grid_w = QWidget()
+        self.grid = QGridLayout(self.grid_w)
+        self.grid.setContentsMargins(0, 0, 0, 0)
+
+        split = QSplitter()
+        split.addWidget(self._build_left_panel())
+        split.addWidget(self.grid_w)
+        split.setStretchFactor(1, 1)
+        split.setSizes([340, 1000])
+
+        lay = QVBoxLayout(self)
+        lay.addLayout(self._build_top_bar())
+        lay.addWidget(split, 1)
+
+        self.tick = QTimer(self)
+        self.tick.timeout.connect(self._on_tick)
+        self.tick.start(50)
+        self.disk_tick = QTimer(self)
+        self.disk_tick.timeout.connect(self._update_disk)
+        self.disk_tick.start(5000)
+
+        self.reload()
+
+    def _build_top_bar(self) -> QHBoxLayout:
+        """Experiment, length, Start / Stop, timer and free disk space."""
         self.assay_combo = QComboBox()
         self.assay_combo.setMinimumWidth(180)
         self.assay_combo.currentTextChanged.connect(self._assay_changed)
@@ -216,7 +249,9 @@ class RecordTab(QWidget):
         self.stop_btn.setEnabled(False)
         self.stop_btn.clicked.connect(self.stop_recording)
         self.timer_label = QLabel("")
-        self.timer_label.setStyleSheet("font-size:16px; font-family:monospace;")
+        fixed = QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont)  # per platform
+        fixed.setPixelSize(16)
+        self.timer_label.setFont(fixed)
         self.disk_label = QLabel("")
 
         top = QHBoxLayout()
@@ -232,12 +267,14 @@ class RecordTab(QWidget):
         top.addWidget(self.timer_label)
         top.addStretch(1)
         top.addWidget(self.disk_label)
+        return top
 
-        # ---- left: session + animals
+    def _build_left_panel(self) -> QScrollArea:
+        """Session box, then one animal form per arena (filled in by _assay_changed)."""
         self.session_box = QGroupBox("Session")
         sform = QFormLayout(self.session_box)
-        self.experimenter = QLineEdit(settings.get("last_experimenter", ""))
-        self.cohort = QLineEdit(settings.get("last_cohort", ""))
+        self.experimenter = QLineEdit(self.settings.get("last_experimenter", ""))
+        self.cohort = QLineEdit(self.settings.get("last_cohort", ""))
         sform.addRow("Experimenter *", self.experimenter)
         sform.addRow("Cohort / litter", self.cohort)
         # Shown only for assays that have variants / phases (metadata standard).
@@ -262,30 +299,7 @@ class RecordTab(QWidget):
         left.setWidgetResizable(True)
         left.setWidget(left_inner)
         left.setMinimumWidth(300)
-
-        # ---- right: camera grid
-        self.grid_w = QWidget()
-        self.grid = QGridLayout(self.grid_w)
-        self.grid.setContentsMargins(0, 0, 0, 0)
-
-        split = QSplitter()
-        split.addWidget(left)
-        split.addWidget(self.grid_w)
-        split.setStretchFactor(1, 1)
-        split.setSizes([340, 1000])
-
-        lay = QVBoxLayout(self)
-        lay.addLayout(top)
-        lay.addWidget(split, 1)
-
-        self.tick = QTimer(self)
-        self.tick.timeout.connect(self._on_tick)
-        self.tick.start(50)
-        self.disk_tick = QTimer(self)
-        self.disk_tick.timeout.connect(self._update_disk)
-        self.disk_tick.start(5000)
-
-        self.reload()
+        return left
 
     # ----------------------------------------------------------- setup
     def reload(self) -> None:
@@ -336,56 +350,61 @@ class RecordTab(QWidget):
             combo.setCurrentText(current if current in choices else "")
             combo.setVisible(bool(choices))
             label.setVisible(bool(choices))
-        is_or = std == "Object Recognition"
 
-        # animal forms
-        old_values = {k: f.values() for k, f in self.forms.items()}
-        for f in self.forms.values():
-            f.setParent(None)
-            f.deleteLater()
-        self.forms.clear()
-        multi = len(assay["arenas"]) > 1
-        for arena in assay["arenas"]:
-            form = AnimalForm(arena["name"], multi, self.animals, objects=is_or)
-            if arena["name"] in old_values:
-                form.set_values(old_values[arena["name"]])
-            form.toggled.connect(self._arena_toggled)
-            self.forms_holder.addWidget(form)
-            self.forms[arena["name"]] = form
-
-        # camera views
-        for v in self.views.values():
-            v.setParent(None)
-            v.deleteLater()
-        self.views.clear()
-        self.view_slot.clear()
-        self.view_arena.clear()
-        cams = [(arena["name"], c) for arena in assay["arenas"] for c in arena["cameras"]]
-        cols = 2 if len(cams) > 1 else 1
-        for i, (arena_name, c) in enumerate(cams):
-            slot = self.settings.slot(c["slot"]) or {"name": c["slot"]}
-            view = CameraView(f"{c['label']}  ({slot['name']})")
-            cs = self.settings.camera_settings(name, c["slot"])
-            view.toggle.setChecked(cs["enabled"])
-            view.enabled_changed.connect(lambda on, s=c["slot"]: self._camera_toggled(s, on))
-            view.controls_requested.connect(lambda s=c["slot"]: self._open_controls(s))
-            self.grid.addWidget(view, i // cols, i % cols)
-            self.views[c["label"]] = view
-            self.view_slot[c["label"]] = c["slot"]
-            self.view_arena[c["label"]] = arena_name
+        self._rebuild_forms(assay, std)
+        self._rebuild_views(assay)
         self.set_locked(self.settings.get("locked", False))
         self._open_cameras()
         self._update_out_label()
         self._update_disk()
         self._update_off_state()
 
+    def _rebuild_forms(self, assay: dict, std: str) -> None:
+        """One animal form per arena; what was already typed is kept for arenas
+        that still exist."""
+        old = {k: (f.values(), f.active) for k, f in self.forms.items()}
+        for f in self.forms.values():
+            f.setParent(None)
+            f.deleteLater()
+        self.forms.clear()
+        multi = len(assay["arenas"]) > 1
+        for arena in assay["arenas"]:
+            form = AnimalForm(arena["name"], multi, self.animals, objects=std == "Object Recognition")
+            if arena["name"] in old:
+                values, active = old[arena["name"]]
+                form.set_values(values)
+                if multi:
+                    form.setChecked(active)
+            form.toggled.connect(self._arena_toggled)
+            self.forms_holder.addWidget(form)
+            self.forms[arena["name"]] = form
+
+    def _rebuild_views(self, assay: dict) -> None:
+        """One live feed per camera of the experiment."""
+        for v in self.views.values():
+            v.setParent(None)
+            v.deleteLater()
+        self.views.clear()
+        cams = [(arena["name"], c) for arena in assay["arenas"] for c in arena["cameras"]]
+        cols = 2 if len(cams) > 1 else 1
+        for i, (arena_name, c) in enumerate(cams):
+            slot = self.settings.slot(c["slot"]) or {"name": c["slot"]}
+            view = CameraView(f"{c['label']}  ({slot['name']})")
+            cs = self.settings.camera_settings(assay["name"], c["slot"])
+            view.toggle.setChecked(cs["enabled"])
+            view.enabled_changed.connect(lambda on, s=c["slot"]: self._camera_toggled(s, on))
+            view.controls_requested.connect(lambda s=c["slot"]: self._open_controls(s))
+            self.grid.addWidget(view, i // cols, i % cols)
+            view.slot_id, view.arena = c["slot"], arena_name
+            self.views[c["label"]] = view
+
     def _open_cameras(self) -> None:
         assay = self.current_assay()
         if assay is None:
             return
         needed = set()
-        for label, view in self.views.items():
-            slot_id = self.view_slot[label]
+        for view in self.views.values():
+            slot_id = view.slot_id
             controls = effective_controls(
                 self.settings.camera_settings(assay["name"], slot_id)["controls"])
             dev = self.cameras.device_for_slot(slot_id)
@@ -421,8 +440,9 @@ class RecordTab(QWidget):
             view.set_off(not self._camera_will_record(label))
 
     def _camera_will_record(self, label: str) -> bool:
-        form = self.forms.get(self.view_arena.get(label, ""))
-        return bool(form and form.active and self.views[label].toggle.isChecked())
+        view = self.views[label]
+        form = self.forms.get(view.arena)
+        return bool(form and form.active and view.toggle.isChecked())
 
     def _open_controls(self, slot_id: str) -> None:
         assay = self.current_assay()
@@ -476,11 +496,11 @@ class RecordTab(QWidget):
         minutes = self._duration_minutes()
         if minutes is None:
             problems.append("Enter a recording length in minutes.")
+        # Variant and phase are blank for assays that have none (see _assay_changed).
         session_info = {"experimenter": self.experimenter.text().strip(),
                         "cohort": self.cohort.text().strip(),
-                        "assay_variant": self.variant.currentText() if self.variant.isVisibleTo(self)
-                        else "",
-                        "phase": self.phase.currentText() if self.phase.isVisibleTo(self) else ""}
+                        "assay_variant": self.variant.currentText(),
+                        "phase": self.phase.currentText()}
         if not session_info["experimenter"]:
             problems.append("Experimenter is required.")
 
@@ -496,24 +516,7 @@ class RecordTab(QWidget):
         if not arenas:
             problems.append("Select at least one arena to record.")
 
-        jobs: list[CameraJob] = []
-        camera_problem_arenas = set()
-        for label, view in self.views.items():
-            arena = self.view_arena[label]
-            if arena not in arenas or not view.toggle.isChecked():
-                continue
-            w = view.worker
-            if w is None:
-                problems.append(f"{label}: no camera assigned/connected.")
-                camera_problem_arenas.add(arena)
-            elif not w.healthy:
-                problems.append(f"{label}: camera is not delivering frames.")
-                camera_problem_arenas.add(arena)
-            else:
-                jobs.append(CameraJob(label, arena, self.view_slot[label], w))
-        for name in arenas:
-            if name not in camera_problem_arenas and not any(j.arena == name for j in jobs):
-                problems.append(f"{name}: all of its cameras are switched off.")
+        jobs = self._camera_jobs(set(arenas), problems)
 
         now = datetime.now()
         out_dir = self.output_dir(assay, now)
@@ -561,6 +564,26 @@ class RecordTab(QWidget):
         self._set_controls_enabled(False)
         self.recording_changed.emit(True)
 
+    def _camera_jobs(self, arenas: set[str], problems: list[str]) -> list[CameraJob]:
+        """One job per switched-on camera of the arenas being recorded. Cameras
+        that can't record, and arenas left with no camera, go into ``problems``."""
+        jobs: list[CameraJob] = []
+        reported = set()  # arenas that already have a camera problem listed
+        for label, view in self.views.items():
+            if view.arena not in arenas or not view.toggle.isChecked():
+                continue
+            if view.worker is None:
+                problems.append(f"{label}: no camera assigned/connected.")
+                reported.add(view.arena)
+            elif not view.worker.healthy:
+                problems.append(f"{label}: camera is not delivering frames.")
+                reported.add(view.arena)
+            else:
+                jobs.append(CameraJob(label, view.arena, view.slot_id, view.worker))
+        for name in arenas - reported - {j.arena for j in jobs}:
+            problems.append(f"{name}: all of its cameras are switched off.")
+        return jobs
+
     def stop_recording(self) -> None:
         if self.session and self.session.running:
             if QMessageBox.question(
@@ -581,13 +604,14 @@ class RecordTab(QWidget):
 
     def _on_tick(self) -> None:
         s = self.session
-        for label, view in self.views.items():
-            extra = ""
-            if s is not None and label in s.repeats:
-                n = s.repeats[label]
-                color = "#c00" if n else "#080"
-                extra = f"  |  <span style='color:{color}'>repeated frames: {n}</span>"
-            view.refresh(extra)
+        if self.isVisible():  # no point drawing feeds behind the Settings tab
+            for label, view in self.views.items():
+                extra = ""
+                if s is not None and label in s.repeats:
+                    n = s.repeats[label]
+                    color = "#c00" if n else "#080"
+                    extra = f"  |  <span style='color:{color}'>repeated frames: {n}</span>"
+                view.refresh(extra)
         if s is None:
             self.timer_label.setText("")
             return
@@ -611,7 +635,7 @@ class RecordTab(QWidget):
                 assay=m["assay"], out_dir=s.out_dir, stamp=s.stamp,
                 session_info=m["session_info"], arenas=m["arenas"], results=results,
                 duration_set_min=m["minutes"], duration_actual_s=s.elapsed_s,
-                stopped_early=s.stopped_early, start_wall=s.start_wall, encoder=m["encoder"],
+                stopped_early=s.stopped_early, encoder=m["encoder"],
                 camera_settings=m["camera_settings"],
                 master_log=Path(self.settings["base_path"]) / m["assay"]["folder"]
                 / f"{m['assay']['folder']}_log.csv",

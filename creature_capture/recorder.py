@@ -33,8 +33,9 @@ import re
 import subprocess
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 
 import cv2
@@ -118,6 +119,7 @@ class CameraResult:
     repeated: int = 0
     repeated_frames: list[int] = field(default_factory=list)
     verified_frames: int | None = None
+    fps_measured: float | None = None  # from the clock's own tick times
     error: str = ""
 
 
@@ -125,13 +127,14 @@ class _VideoWriter:
     """One FFmpeg process + feeding thread per camera."""
 
     def __init__(self, base: Path, encoder: str, quality: int, overlay: dict):
-        self.base = base  # path without extension
+        # base = output path without extension
         self.partial = base.with_name(base.name + ffmpeg_util.RECORDING_SUFFIX)
         self.final = base.with_name(base.name + ".mp4")
         self.ts_path = base.with_name(base.name + "_frames.csv")
         self.log_path = base.with_name(base.name + ".ffmpeg.log")
         self.overlay = overlay
         self.error = ""
+        self._dead = False  # encoder stopped: further frames are discarded
         self.q: queue.Queue = queue.Queue(maxsize=OUTPUT_FPS * 30)
         cmd = [
             ffmpeg_util.ffmpeg_exe(), "-hide_banner", "-loglevel", "error", "-y",
@@ -143,10 +146,15 @@ class _VideoWriter:
             "-f", "mp4", str(self.partial),
         ]
         self._log = open(self.log_path, "wb")
-        self.proc = subprocess.Popen(
-            cmd, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=self._log,
-            creationflags=ffmpeg_util.NO_WINDOW,
-        )
+        try:
+            self.proc = subprocess.Popen(
+                cmd, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=self._log,
+                creationflags=ffmpeg_util.NO_WINDOW,
+            )
+        except OSError:
+            self._log.close()
+            self.log_path.unlink(missing_ok=True)
+            raise
         self._ts_file = open(self.ts_path, "w", newline="", encoding="utf-8")
         self._ts = csv.writer(self._ts_file)
         self._ts.writerow(["frame", "video_time_s", "tick_time_s", "camera_frame_time_s",
@@ -154,13 +162,15 @@ class _VideoWriter:
         self.thread = threading.Thread(target=self._run, daemon=True, name=f"enc-{base.name}")
         self.thread.start()
 
-    def put(self, item) -> bool:
+    def put(self, item) -> None:
+        """Queue one frame without ever blocking the clock. A frame is dropped
+        (and reported) only if the encoder has stopped or is 30 s behind."""
+        if self._dead:
+            return
         try:
             self.q.put_nowait(item)
-            return True
         except queue.Full:
             self.error = "Encoder could not keep up (queue full)"
-            return False
 
     def _run(self) -> None:
         blank = np.zeros((OUTPUT_HEIGHT, OUTPUT_WIDTH), np.uint8)
@@ -174,15 +184,18 @@ class _VideoWriter:
             if self.overlay.get("enabled", True):
                 frame = draw_overlay(frame, idx, OUTPUT_FPS, repeated, self.overlay)
             try:
-                self.proc.stdin.write(np.ascontiguousarray(frame).tobytes())
+                self.proc.stdin.write(np.ascontiguousarray(frame))  # no extra copy
             except (BrokenPipeError, OSError, ValueError):
                 self.error = "Encoder stopped unexpectedly (see .ffmpeg.log)"
+                self._dead = True
                 break
             self._ts.writerow([idx, f"{idx / OUTPUT_FPS:.3f}", f"{tick_t:.4f}",
                                f"{cam_t:.4f}" if cam_t is not None else "", seq,
                                "true" if repeated else "false"])
-        # Drain anything left so put() never blocks after an error.
-        while not self.q.empty():
+            if idx % OUTPUT_FPS == 0:
+                self._ts_file.flush()  # like the video: at most ~1 s lost in a crash
+        # Free any frames still queued after an error.
+        while self._dead:
             try:
                 self.q.get_nowait()
             except queue.Empty:
@@ -210,6 +223,13 @@ class _VideoWriter:
         except OSError:
             pass
 
+    def abort(self) -> None:
+        """Stop and remove everything (the recording never started)."""
+        self.proc.kill()
+        self.finish()
+        for p in (self.partial, self.ts_path, self.log_path):
+            p.unlink(missing_ok=True)
+
 
 def _sleep_until(target: float) -> None:
     while True:
@@ -236,9 +256,7 @@ class RecordingSession:
     ):
         self.jobs = jobs
         self.out_dir = Path(out_dir)
-        self.start_time = start_time
         self.stamp = start_time.strftime("%Y-%m-%d_%H-%M-%S")
-        self.duration_s = duration_s
         self.total_frames = int(round(duration_s * OUTPUT_FPS))
         self.encoder = encoder
         self.quality = quality
@@ -247,9 +265,9 @@ class RecordingSession:
         self.repeats = {j.label: 0 for j in jobs}
         self.repeat_idx: dict[str, list[int]] = {j.label: [] for j in jobs}
         self.max_lag_s = 0.0
+        self.fps_measured: float | None = None
         self.stopped_early = False
-        self.start_wall: datetime | None = None
-        self.end_wall: datetime | None = None
+        self.error = ""  # set if the clock itself failed
         self._stop_event = threading.Event()
         self._writers: list[_VideoWriter] = []
         self._thread: threading.Thread | None = None
@@ -262,10 +280,15 @@ class RecordingSession:
 
     def start(self) -> None:
         self.out_dir.mkdir(parents=True, exist_ok=True)
-        for job in self.jobs:
-            self._writers.append(
-                _VideoWriter(self.file_base(job), self.encoder, self.quality, self.overlay)
-            )
+        try:
+            for job in self.jobs:
+                self._writers.append(
+                    _VideoWriter(self.file_base(job), self.encoder, self.quality, self.overlay))
+        except Exception:
+            for w in self._writers:  # don't leave encoders running for the other cameras
+                w.abort()
+            self._writers.clear()
+            raise
         self.running = True
         self._thread = threading.Thread(target=self._run, daemon=True, name="rec-clock")
         self._thread.start()
@@ -284,59 +307,70 @@ class RecordingSession:
         return True
 
     def finalize(self) -> list[CameraResult]:
-        """Close encoders and convert to standard MP4. Blocking (seconds)."""
+        """Close encoders and convert to standard MP4, all cameras at once.
+        Blocking (seconds)."""
         self.wait_clock()
-        results = []
-        for job, w in zip(self.jobs, self._writers):
-            w.finish()
-            res = CameraResult(job.label, job.arena, job.slot_id,
-                               timestamps=w.ts_path, frames=self.frames_done,
-                               repeated=self.repeats[job.label],
-                               repeated_frames=self.repeat_idx[job.label])
-            res.error = w.error
-            if w.partial.exists() and ffmpeg_util.remux_to_mp4(w.partial, w.final):
-                w.partial.unlink(missing_ok=True)
-                res.video = w.final
-                cap = cv2.VideoCapture(str(w.final))
-                if cap.isOpened():
-                    res.verified_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-                cap.release()
-            elif w.partial.exists():
-                res.video = w.partial
-                res.error = res.error or "Could not convert to standard MP4; crash-safe file kept"
-            else:
-                res.error = res.error or "No video file was produced"
-            results.append(res)
-        return results
+        with ThreadPoolExecutor(max_workers=max(1, len(self.jobs))) as pool:
+            return list(pool.map(self._finish_camera, self.jobs, self._writers))
+
+    def _finish_camera(self, job: CameraJob, w: _VideoWriter) -> CameraResult:
+        w.finish()
+        res = CameraResult(job.label, job.arena, job.slot_id,
+                           timestamps=w.ts_path, frames=self.frames_done,
+                           repeated=self.repeats[job.label],
+                           repeated_frames=self.repeat_idx[job.label],
+                           fps_measured=self.fps_measured, error=w.error or self.error)
+        if w.partial.exists() and ffmpeg_util.remux_to_mp4(w.partial, w.final):
+            w.partial.unlink(missing_ok=True)
+            res.video = w.final
+            cap = cv2.VideoCapture(str(w.final))
+            if cap.isOpened():
+                res.verified_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+            cap.release()
+        elif w.partial.exists():
+            res.video = w.partial
+            res.error = res.error or "Could not convert to standard MP4; crash-safe file kept"
+        else:
+            res.error = res.error or "No video file was produced"
+        return res
 
     # ------------------------------------------------------------ internal
     def _run(self) -> None:
+        try:
+            self._clock()
+        except Exception as e:  # noqa: BLE001 - never leave the app stuck "recording"
+            self.error = f"Recording stopped by an internal error: {e!r}"
+            raise
+        finally:
+            self.stopped_early = self.frames_done < self.total_frames
+            self.running = False
+
+    def _clock(self) -> None:
         period = 1.0 / OUTPUT_FPS
         last_seq = {j.label: -1 for j in self.jobs}
-        last_frame: dict[str, np.ndarray | None] = {j.label: None for j in self.jobs}
         t0 = time.perf_counter() + 0.05
-        _sleep_until(t0)
-        self.start_wall = datetime.now().astimezone()  # local time with UTC offset
+        first_tick = last_tick = t0
         k = 0
         while k < self.total_frames and not self._stop_event.is_set():
             target = t0 + k * period
             _sleep_until(target)
             tick = time.perf_counter()
+            if k == 0:
+                first_tick = tick
+            last_tick = tick
             self.max_lag_s = max(self.max_lag_s, tick - target)
             for job, w in zip(self.jobs, self._writers):
                 frame, seq, cam_t = job.worker.latest()
+                # No new frame since the last tick (or none at all yet): the same
+                # frame is written again, so the video stays in real time.
                 repeated = seq == last_seq[job.label] or frame is None
-                if frame is None:
-                    frame = last_frame[job.label]
                 if repeated:
                     self.repeats[job.label] += 1
                     if len(self.repeat_idx[job.label]) < 10000:
                         self.repeat_idx[job.label].append(k)
                 last_seq[job.label] = seq
-                last_frame[job.label] = frame
                 w.put((frame, k, repeated, tick - t0, (cam_t - t0) if seq > 0 else None, seq))
             k += 1
             self.frames_done = k
-        self.stopped_early = k < self.total_frames
-        self.end_wall = self.start_wall + timedelta(seconds=k / OUTPUT_FPS)
-        self.running = False
+        if k > 1 and last_tick > first_tick:
+            self.fps_measured = (k - 1) / (last_tick - first_tick)

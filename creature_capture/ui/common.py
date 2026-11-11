@@ -16,7 +16,7 @@ from PySide6.QtWidgets import (
 from creature_capture import devices as devmod
 from creature_capture import ffmpeg_util
 from creature_capture.camera import CameraWorker
-from creature_capture.config import Settings
+from creature_capture.config import OUTPUT_HEIGHT, OUTPUT_WIDTH, Settings
 
 
 class CameraManager:
@@ -94,8 +94,8 @@ class EncoderProbe(QObject):
         self.done.emit(self.result)
 
     def get(self) -> str:
-        if self.result is None:
-            self.result = ffmpeg_util.choose_encoder(self.settings.get("encoder", "auto"))
+        if self.result is None:  # asked before the background check finished
+            self._run()
         return self.result
 
 
@@ -103,10 +103,11 @@ def gray_to_pixmap(frame: np.ndarray, w: int, h: int) -> QPixmap:
     frame = np.ascontiguousarray(frame)
     img = QImage(frame.data, frame.shape[1], frame.shape[0], frame.strides[0],
                  QImage.Format.Format_Grayscale8)
-    pm = QPixmap.fromImage(img)  # copies the data
-    # Fast scaling keeps the GUI thread light so it never delays capture/recording.
-    return pm.scaled(w, h, Qt.AspectRatioMode.KeepAspectRatio,
-                     Qt.TransformationMode.FastTransformation)
+    # Scale first (a copy, so the frame's memory isn't kept), then convert only the
+    # small image. Fast scaling keeps the GUI thread light so it never delays
+    # capture/recording.
+    return QPixmap.fromImage(img.scaled(w, h, Qt.AspectRatioMode.KeepAspectRatio,
+                                        Qt.TransformationMode.FastTransformation))
 
 
 def free_space_gb(path: str | Path) -> float | None:
@@ -131,6 +132,8 @@ class CameraView(QFrame):
         super().__init__(parent)
         self.setFrameShape(QFrame.Shape.StyledPanel)
         self.worker: CameraWorker | None = None
+        self.slot_id = ""  # set by the Record tab: the camera position shown
+        self.arena = ""  # ... and the arena it belongs to
         self._last_seq = -1
         self._recording = False
 
@@ -198,5 +201,6 @@ class CameraView(QFrame):
         else:
             nw, nh = w.native_size
             size = f"{nw}x{nh}" if nw else "?"
-            warn = "" if (nw, nh) in ((800, 600), (0, 0)) else " (resized to 800x600)"
+            warn = ("" if (nw, nh) in ((OUTPUT_WIDTH, OUTPUT_HEIGHT), (0, 0))
+                    else f" (resized to {OUTPUT_WIDTH}x{OUTPUT_HEIGHT})")
             self.status.setText(f"Camera: {w.measured_fps:4.1f} fps, {size}{warn}{extra_status}")

@@ -202,7 +202,10 @@ class Settings:
 
     def __init__(self, data: dict | None = None, path: Path | None = None):
         self.path = path or settings_path()
-        self.data = _merge_defaults(data or {}, DEFAULTS)
+        self._set_data(data or {})
+
+    def _set_data(self, data: dict) -> None:
+        self.data = _merge_defaults(data, DEFAULTS)
         if not self.data.get("base_path"):
             self.data["base_path"] = default_base_path()
 
@@ -234,8 +237,7 @@ class Settings:
         Path(path).write_text(json.dumps(self.data, indent=2), encoding="utf-8")
 
     def import_from(self, path: Path) -> None:
-        data = json.loads(Path(path).read_text(encoding="utf-8"))
-        self.data = _merge_defaults(data, DEFAULTS)
+        self._set_data(json.loads(Path(path).read_text(encoding="utf-8")))
         self.save()
 
     # ------------------------------------------------------------ helpers

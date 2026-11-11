@@ -33,12 +33,12 @@ def run() -> int:
         enc = ffmpeg_util.choose_encoder("auto")
         lines.append(f"Encoder selected: {enc}")
 
-        devs = devices.list_devices(simulated=0)
-        lines.append(f"Cameras found: {len(devs)}")
-        for d in devs:
+        devs = devices.list_devices(simulated=2)  # real cameras, then 2 test patterns
+        real, sims = devs[:-2], devs[-2:]
+        lines.append(f"Cameras found: {len(real)}")
+        for d in real:
             lines.append(f"  {d.describe()}")
 
-        sims = devices.list_devices(simulated=2)[-2:]
         workers = [CameraWorker(d, 30) for d in sims]
         for w in workers:
             w.start()

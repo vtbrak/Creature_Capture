@@ -8,7 +8,7 @@ import os
 import tempfile
 from pathlib import Path
 
-from creature_capture import __version__
+from creature_capture import APP_NAME, __version__
 from creature_capture.camera import effective_controls
 from creature_capture.config import (
     OUTPUT_FPS, OUTPUT_HEIGHT, OUTPUT_WIDTH, assay_phases, assay_variants, standard_assay,
@@ -25,11 +25,6 @@ ANIMAL_FIELDS = [
     ("session_number", "Session # that day", False),
     ("notes", "Notes", False),
 ]
-SESSION_FIELDS = [
-    ("experimenter", "Experimenter", True),
-    ("cohort", "Cohort / litter", False),
-]
-
 LOG_COLUMNS = [
     "date", "start_time", "assay", "assay_variant", "phase", "arena",
     "experimenter", "cohort",
@@ -73,7 +68,6 @@ def load_animal_list(path: Path) -> list[dict]:
 
 
 # ------------------------------------------------------------- trial files
-APP_NAME = "Creature Capture"
 SCHEMA_VERSION = 1  # Track Tamer metadata standard (metadata_standard.md)
 
 
@@ -119,7 +113,6 @@ def write_trial_records(
     duration_set_min: float,
     duration_actual_s: float,
     stopped_early: bool,
-    start_wall,
     encoder: str,
     camera_settings: dict,
     master_log: Path,
@@ -130,34 +123,35 @@ def write_trial_records(
     written = []
     log_ok = True
     date_s, time_s = stamp.split("_", 1)
-    time_s = time_s.replace("-", ":")
     assay_name = standard_assay(assay) or assay["name"]
     # Variant and phase only from that assay's own lists (standard, section 3).
     variant = session_info.get("assay_variant", "")
-    variant = variant if variant in assay_variants(assay_name) else ""
     phase = session_info.get("phase", "")
-    phase = phase if phase in assay_phases(assay_name) else ""
     for arena_name, animal in arenas.items():
         arena = arena_slug(arena_name)
         arena_results = [r for r in results if r.arena == arena_name]
-        videos = [r.video.name for r in arena_results if r.video]
-        repeated = ";".join(f"{camera_label(r.label, r.arena)}:{r.repeated}" for r in arena_results)
-        row = {
+        # The trial as text: the CSV row as it is, and the base of the JSON.
+        trial = {
             "date": date_s,
-            "start_time": time_s,
+            "start_time": time_s.replace("-", ":"),
             "assay": assay_name,
-            "assay_variant": variant,
-            "phase": phase,
+            "assay_variant": variant if variant in assay_variants(assay_name) else "",
+            "phase": phase if phase in assay_phases(assay_name) else "",
             "arena": arena,
             "experimenter": session_info.get("experimenter", ""),
             "cohort": session_info.get("cohort", ""),
             **{k: animal.get(k, "") for k, _, _ in ANIMAL_FIELDS},
+            "sex": _sex(animal.get("sex", "")),
+        }
+        row = {
+            **trial,
             "duration_set_min": f"{duration_set_min:g}",
             "duration_actual_s": f"{duration_actual_s:.2f}",
             "stopped_early": "yes" if stopped_early else "no",
             "frames": arena_results[0].frames if arena_results else 0,
-            "repeated_frames": repeated,
-            "videos": ";".join(videos),
+            "repeated_frames": ";".join(f"{camera_label(r.label, r.arena)}:{r.repeated}"
+                                        for r in arena_results),
+            "videos": ";".join(r.video.name for r in arena_results if r.video),
             "encoder": encoder,
             "app_version": __version__,
         }
@@ -169,50 +163,37 @@ def write_trial_records(
             w.writerow(row)
         written.append(csv_path)
 
+        # The JSON: same fields with JSON types, and blank ones left out.
         info = _drop_empty({
             "schema_version": SCHEMA_VERSION,
             "app_name": APP_NAME,
             "app_version": __version__,
-            "date": date_s,
-            "start_time": time_s,
-            "assay": assay_name,
-            "assay_variant": variant,
-            "phase": phase,
-            "arena": arena,
-            "experimenter": session_info.get("experimenter"),
-            "cohort": session_info.get("cohort"),
-            "animal_id": animal.get("animal_id"),
-            "sex": _sex(animal.get("sex", "")),
-            "strain": animal.get("strain"),
-            "dob": animal.get("dob"),
-            "treatment": animal.get("treatment"),
-            "trial_day": _number(animal.get("trial_day")),
-            "session_number": _number(animal.get("session_number")),
-            "notes": animal.get("notes"),
+            **trial,
+            "trial_day": _number(trial["trial_day"]),
+            "session_number": _number(trial["session_number"]),
             "duration_set_min": _number(duration_set_min),
             "duration_actual_s": round(duration_actual_s, 2),
         })
         info["stopped_early"] = bool(stopped_early)
         if assay_name == "Object Recognition":
-            info.update(_drop_empty({
-                "objects": [_drop_empty({"name": f"object {i + 1}", **o})
-                            for i, o in enumerate(animal.get("objects", []))],
-            }))
-        info["cameras"] = [_camera_entry(r, duration_actual_s, camera_settings, encoder)
-                           for r in arena_results]
+            objects = [_drop_empty({"name": f"object {i + 1}", **o})
+                       for i, o in enumerate(animal.get("objects", []))]
+            if objects:
+                info["objects"] = objects
+        info["cameras"] = [_camera_entry(r, camera_settings, encoder) for r in arena_results]
         info["creature_capture"] = {
             "experiment": assay["name"],
             "gpu": encoder == "h264_nvenc",
         }
         json_path = base.with_suffix(".json")
-        _write_json_atomic(json_path, info)
+        _write_atomic(json_path, lambda f: json.dump(info, f, indent=2, ensure_ascii=False))
         written.append(json_path)
 
         log_ok = append_master_log(master_log, row) and log_ok
     return written, log_ok
 
 
-def _camera_entry(r, duration_actual_s: float, camera_settings: dict, encoder: str) -> dict:
+def _camera_entry(r, camera_settings: dict, encoder: str) -> dict:
     entry = {
         "label": camera_label(r.label, r.arena),
         "camera_position": r.slot_id,
@@ -222,7 +203,7 @@ def _camera_entry(r, duration_actual_s: float, camera_settings: dict, encoder: s
         "video": r.video.name if r.video else None,
         "timestamps_csv": r.timestamps.name if r.timestamps else None,
         "fps_set": OUTPUT_FPS,
-        "fps_measured": round(r.frames / duration_actual_s, 3) if duration_actual_s > 0 else None,
+        "fps_measured": round(r.fps_measured, 3) if r.fps_measured else None,
         "width_px": OUTPUT_WIDTH,
         "height_px": OUTPUT_HEIGHT,
         "frames": r.frames,
@@ -235,12 +216,13 @@ def _camera_entry(r, duration_actual_s: float, camera_settings: dict, encoder: s
     return entry
 
 
-def _write_json_atomic(path: Path, data: dict) -> None:
-    """Write to a temporary name, then rename, so a crash never leaves half a file."""
+def _write_atomic(path: Path, write) -> None:
+    """Write to a temporary name, then rename, so a crash never leaves half a
+    file. ``write`` is called with the open text file."""
     fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=path.stem + ".", suffix=".tmp")
     try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2, ensure_ascii=False)
+        with os.fdopen(fd, "w", newline="", encoding="utf-8") as f:
+            write(f)
         os.replace(tmp, path)
     except BaseException:
         Path(tmp).unlink(missing_ok=True)
@@ -255,25 +237,29 @@ def _applied_settings(saved: dict | None, encoder: str) -> dict:
     return {"encoder": encoder, **effective_controls((saved or {}).get("controls"))}
 
 
+def _write_rows(f, rows: list[dict], header: bool) -> None:
+    w = csv.DictWriter(f, fieldnames=LOG_COLUMNS, extrasaction="ignore")
+    if header:
+        w.writeheader()
+    w.writerows(rows)
+
+
 def _append_rows(path: Path, rows: list[dict]) -> None:
-    new = not path.exists() or path.stat().st_size == 0
-    if not new:
-        with open(path, newline="", encoding="utf-8") as f:
-            header = next(csv.reader(f), [])
-        if header != LOG_COLUMNS:
-            # Log from an older version: rewrite it once with the current columns
-            # so new rows line up (old rows get blanks in the new columns).
-            with open(path, newline="", encoding="utf-8") as f:
-                old = list(csv.DictReader(f))
-            with open(path, "w", newline="", encoding="utf-8") as f:
-                w = csv.DictWriter(f, fieldnames=LOG_COLUMNS, extrasaction="ignore")
-                w.writeheader()
-                w.writerows(old)
-    with open(path, "a", newline="", encoding="utf-8") as f:
-        w = csv.DictWriter(f, fieldnames=LOG_COLUMNS, extrasaction="ignore")
-        if new:
-            w.writeheader()
-        w.writerows(rows)
+    if path.exists() and path.stat().st_size > 0:
+        # utf-8-sig: still reads the log after Excel re-saved it with a byte-order mark.
+        with open(path, newline="", encoding="utf-8-sig", errors="replace") as f:
+            reader = csv.DictReader(f)
+            # A log from an older version has other columns: rewrite it once with
+            # the current ones so new rows line up (old rows get blanks).
+            old = list(reader) if reader.fieldnames != LOG_COLUMNS else None
+        if old is not None:
+            _write_atomic(path, lambda f: _write_rows(f, old + rows, header=True))
+            return
+        with open(path, "a", newline="", encoding="utf-8") as f:
+            _write_rows(f, rows, header=False)
+    else:
+        with open(path, "w", newline="", encoding="utf-8") as f:
+            _write_rows(f, rows, header=True)
 
 
 def append_master_log(path: Path, row: dict) -> bool:
@@ -287,7 +273,7 @@ def append_master_log(path: Path, row: dict) -> bool:
     pending = path.with_name(path.stem + "_pending.csv")
     rows = []
     if pending.exists():
-        with open(pending, newline="", encoding="utf-8") as f:
+        with open(pending, newline="", encoding="utf-8-sig", errors="replace") as f:
             rows = list(csv.DictReader(f))
     rows.append(row)
     try:

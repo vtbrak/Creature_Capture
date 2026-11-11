@@ -47,6 +47,9 @@ def test_main_window_with_sim_cameras(app, tmp_path):
     rec.forms["Arena2"].setChecked(False)
     assert not rec._camera_will_record("Arena2_Overhead")
     assert rec._camera_will_record("Arena1_Overhead")
+    rec.reload()
+    assert not rec.forms["Arena2"].active  # an arena switched off stays off
+    assert not rec._camera_will_record("Arena2_Overhead")
 
     rec.assay_combo.setCurrentText("Elevated Plus")
     assert list(rec.views) == ["Overhead"]
@@ -66,6 +69,17 @@ def test_main_window_with_sim_cameras(app, tmp_path):
     form.objects.cellWidget(0, 1).setCurrentText("Novel")
     assert form.values()["objects"] == [
         {"identity": "glass bottle", "kind": "Novel", "position": ""}]
+
+    # Coming back from Settings rebuilds the tab: what was typed must survive.
+    form.fields["animal_id"].setText("M7")
+    form.fields["notes"].setPlainText("sleepy")
+    rec.phase.setCurrentText("Test")
+    rec.reload()
+    form = rec.forms["NOR1"]
+    assert form.values()["animal_id"] == "M7" and form.values()["notes"] == "sleepy"
+    assert form.values()["objects"] == [
+        {"identity": "glass bottle", "kind": "Novel", "position": ""}]
+    assert form.objects.rowCount() == 2 and rec.phase.currentText() == "Test"
 
     win.tabs.setCurrentIndex(1)
     app.processEvents()

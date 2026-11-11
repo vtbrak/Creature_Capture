@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import csv
 import shutil
-import sys
 from pathlib import Path
 
 import numpy as np
@@ -16,7 +15,9 @@ from PySide6.QtWidgets import (
 )
 
 from creature_capture import records
-from creature_capture.config import Settings, animals_path, app_data_dir
+from creature_capture.config import (
+    OUTPUT_FPS, OUTPUT_HEIGHT, OUTPUT_WIDTH, Settings, animals_path, app_data_dir,
+)
 from creature_capture.recorder import draw_overlay
 from creature_capture.ui.assay_editor import AssayEditor
 from creature_capture.ui.common import CameraManager, CameraView, EncoderProbe, gray_to_pixmap
@@ -34,28 +35,55 @@ class SettingsTab(QWidget):
         self.lockable: list[QWidget] = []
         self._loading = False
 
-        # ---------------------------------------------------------- lock
         self.lock = QCheckBox("Lock settings  (untick to make changes)")
         self.lock.setStyleSheet("QCheckBox{font-weight:bold; font-size:14px;}")
         self.lock.setChecked(bool(settings.get("locked", False)))
         self.lock.toggled.connect(self._lock_toggled)
 
-        # -------------------------------------------------------- output
+        inner = QWidget()
+        lay = QVBoxLayout(inner)
+        lay.addWidget(self.lock)
+        for build in (self._build_output, self._build_cameras, self._build_experiments,
+                      self._build_recording, self._build_overlay, self._build_animals,
+                      self._build_backup, self._build_testing):
+            lay.addWidget(build())
+        lay.addStretch(1)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setWidget(inner)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.addWidget(scroll)
+
+        self.timer = QTimer(self)
+        self.timer.timeout.connect(self.preview.refresh)
+
+        self._fill_slots()
+        self._fill_assays()
+        self._update_example()
+        self._update_overlay_preview()
+        self._update_animal_status()
+        self._apply_lock()
+
+    # ------------------------------------------------- the settings boxes
+    def _build_output(self) -> QGroupBox:
+        """Where videos are saved."""
         out_box = QGroupBox("Output")
-        self.base_path = QLineEdit(settings["base_path"])
+        self.base_path = QLineEdit(self.settings["base_path"])
         self.base_path.editingFinished.connect(self._save_output)
         browse = QPushButton("Browse…")
         browse.clicked.connect(self._browse)
         row = QHBoxLayout()
         row.addWidget(self.base_path, 1)
         row.addWidget(browse)
-        self.date_sub = QCheckBox("Put videos in a dated subfolder (e.g. OpenField\\2026-11-05)")
-        self.date_sub.setChecked(bool(settings.get("date_subfolders", True)))
+        self.date_sub = QCheckBox(
+            f"Put videos in a dated subfolder (e.g. {Path('OpenField', '2026-11-05')})")
+        self.date_sub.setChecked(bool(self.settings.get("date_subfolders", True)))
         self.date_sub.toggled.connect(self._save_output)
         self.disk_warn = QSpinBox()
         self.disk_warn.setRange(1, 10000)
         self.disk_warn.setSuffix(" GB")
-        self.disk_warn.setValue(int(settings.get("disk_warning_gb", 20)))
+        self.disk_warn.setValue(int(self.settings.get("disk_warning_gb", 20)))
         self.disk_warn.valueChanged.connect(self._save_output)
         self.out_example = QLabel("")
         self.out_example.setStyleSheet("color:#555;")
@@ -65,8 +93,10 @@ class SettingsTab(QWidget):
         f.addRow("Warn when free space below", self.disk_warn)
         f.addRow("Example", self.out_example)
         self.lockable += [self.base_path, browse, self.date_sub, self.disk_warn]
+        return out_box
 
-        # ------------------------------------------------------- cameras
+    def _build_cameras(self) -> QGroupBox:
+        """Which physical camera is at each camera position."""
         cam_box = QGroupBox("Cameras - assign each physical camera to a camera position")
         self.slot_table = QTableWidget(0, 2)
         self.slot_table.setHorizontalHeaderLabels(["Camera position", "Physical camera"])
@@ -104,8 +134,10 @@ class SettingsTab(QWidget):
         cam_lay.addLayout(left, 3)
         cam_lay.addWidget(self.preview, 2)
         self.lockable += [self.slot_table, add_slot, rem_slot]
+        return cam_box
 
-        # --------------------------------------------------- experiments
+    def _build_experiments(self) -> QGroupBox:
+        """The list of experiments."""
         exp_box = QGroupBox("Experiments (shown in the Record tab's Experiment list)")
         self.assay_list = QListWidget()
         self.assay_list.itemDoubleClicked.connect(lambda _: self._edit_assay())
@@ -127,29 +159,32 @@ class SettingsTab(QWidget):
         el.addWidget(self.assay_list, 1)
         el.addLayout(eb)
         self.lockable += [new_a, edit_a, del_a, up_a, down_a]
+        return exp_box
 
-        # ----------------------------------------------------- recording
+    def _build_recording(self) -> QGroupBox:
+        """Encoder, quality and capture rate."""
         rec_box = QGroupBox("Recording")
         self.enc_combo = QComboBox()
         self.enc_combo.addItem("Automatic (NVIDIA GPU if available)", "auto")
         self.enc_combo.addItem("NVIDIA GPU (h264_nvenc)", "h264_nvenc")
         self.enc_combo.addItem("CPU (libx264)", "libx264")
-        self.enc_combo.setCurrentIndex(max(0, self.enc_combo.findData(settings.get("encoder", "auto"))))
+        self.enc_combo.setCurrentIndex(max(0, self.enc_combo.findData(self.settings.get("encoder", "auto"))))
         self.enc_combo.currentIndexChanged.connect(self._save_recording)
         self.enc_status = QLabel("Detecting encoder…")
-        encoder.done.connect(lambda e: self.enc_status.setText(f"In use: {e}"))
+        self.encoder.done.connect(lambda e: self.enc_status.setText(f"In use: {e}"))
         self.quality = QSpinBox()
         self.quality.setRange(10, 35)
-        self.quality.setValue(int(settings.get("quality", 20)))
+        self.quality.setValue(int(self.settings.get("quality", 20)))
         self.quality.setToolTip("Lower = better quality and bigger files. 18-23 is typical.")
         self.quality.valueChanged.connect(self._save_recording)
         self.cap_fps = QComboBox()
         for v in (20, 25, 30):
             self.cap_fps.addItem(f"{v} fps", v)
-        self.cap_fps.setCurrentIndex(max(0, self.cap_fps.findData(int(settings.get("camera_capture_fps", 30)))))
+        self.cap_fps.setCurrentIndex(max(0, self.cap_fps.findData(int(self.settings.get("camera_capture_fps", 30)))))
         self.cap_fps.currentIndexChanged.connect(self._save_recording)
         rf = QFormLayout(rec_box)
-        rf.addRow("Video format", QLabel("MP4 (H.264), greyscale, 800 x 600, exactly 20 fps"))
+        rf.addRow("Video format", QLabel(f"MP4 (H.264), greyscale, {OUTPUT_WIDTH} x {OUTPUT_HEIGHT}, "
+                                         f"exactly {OUTPUT_FPS} fps"))
         rf.addRow("Encoder", self.enc_combo)
         rf.addRow("", self.enc_status)
         rf.addRow("Quality (lower = better)", self.quality)
@@ -157,10 +192,12 @@ class SettingsTab(QWidget):
         rf.addRow("", QLabel("<small>Capturing at 30 fps (recommended) guarantees a fresh frame for "
                              "every 20 fps video frame. Videos are always saved at 20 fps.</small>"))
         self.lockable += [self.enc_combo, self.quality, self.cap_fps]
+        return rec_box
 
-        # ------------------------------------------------------- overlay
+    def _build_overlay(self) -> QGroupBox:
+        """The text burned into each video."""
         ov_box = QGroupBox("Text burned into the video (upper-left corner)")
-        ov = settings["overlay"]
+        ov = self.settings["overlay"]
         self.ov_enabled = QCheckBox("Show text")
         self.ov_elapsed = QCheckBox("Elapsed time")
         self.ov_frame = QCheckBox("Frame number")
@@ -177,7 +214,7 @@ class SettingsTab(QWidget):
         self.ov_scale.setValue(float(ov.get("font_scale", 0.5)))
         self.ov_scale.valueChanged.connect(self._save_overlay)
         self.ov_preview = QLabel()
-        self.ov_preview.setFixedSize(400, 300)
+        self.ov_preview.setFixedSize(OUTPUT_WIDTH // 2, OUTPUT_HEIGHT // 2)
         og = QGridLayout(ov_box)
         og.addWidget(self.ov_enabled, 0, 0)
         og.addWidget(self.ov_elapsed, 1, 0)
@@ -193,8 +230,10 @@ class SettingsTab(QWidget):
         og.setRowStretch(6, 1)
         self.lockable += [self.ov_enabled, self.ov_elapsed, self.ov_frame, self.ov_fps,
                           self.ov_mark, self.ov_scale]
+        return ov_box
 
-        # --------------------------------------------------- animal list
+    def _build_animals(self) -> QGroupBox:
+        """The optional animal list."""
         an_box = QGroupBox("Animal list (optional)")
         self.animal_status = QLabel("")
         imp = QPushButton("Import CSV…")
@@ -215,8 +254,10 @@ class SettingsTab(QWidget):
         ab.addStretch(1)
         al.addLayout(ab)
         self.lockable += [imp, clr]
+        return an_box
 
-        # -------------------------------------------------------- backup
+    def _build_backup(self) -> QGroupBox:
+        """Export / import of all settings."""
         bk_box = QGroupBox("Backup")
         exp_s = QPushButton("Export settings…")
         exp_s.clicked.connect(self._export_settings)
@@ -231,42 +272,21 @@ class SettingsTab(QWidget):
         bb.addStretch(1)
         bl.addLayout(bb)
         self.lockable += [imp_s]
+        return bk_box
 
-        # --------------------------------------------------- development
+    def _build_testing(self) -> QGroupBox:
+        """Test-pattern cameras."""
         dev_box = QGroupBox("Testing without cameras")
         self.sim = QSpinBox()
         self.sim.setRange(0, 8)
-        self.sim.setValue(int(settings.get("simulated_cameras", 0)))
+        self.sim.setValue(int(self.settings.get("simulated_cameras", 0)))
         self.sim.valueChanged.connect(self._save_sim)
         dl = QFormLayout(dev_box)
         dl.addRow("Test-pattern cameras", self.sim)
         dl.addRow("", QLabel("<small>Adds fake cameras that can be assigned like real ones. "
                              "Set to 0 on the recording PC.</small>"))
         self.lockable += [self.sim]
-
-        # -------------------------------------------------------- layout
-        inner = QWidget()
-        lay = QVBoxLayout(inner)
-        lay.addWidget(self.lock)
-        for box in (out_box, cam_box, exp_box, rec_box, ov_box, an_box, bk_box, dev_box):
-            lay.addWidget(box)
-        lay.addStretch(1)
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setWidget(inner)
-        outer = QVBoxLayout(self)
-        outer.setContentsMargins(0, 0, 0, 0)
-        outer.addWidget(scroll)
-
-        self.timer = QTimer(self)
-        self.timer.timeout.connect(self.preview.refresh)
-
-        self._fill_slots()
-        self._fill_assays()
-        self._update_example()
-        self._update_overlay_preview()
-        self._update_animal_status()
-        self._apply_lock()
+        return dev_box
 
     # ------------------------------------------------------------- tab
     def activate(self) -> None:
@@ -313,12 +333,10 @@ class SettingsTab(QWidget):
         self._changed()
 
     def _update_example(self) -> None:
-        sep = "\\" if sys.platform == "win32" else "/"
-        parts = [self.base_path.text().rstrip("\\/"), "OpenField"]
-        if self.date_sub.isChecked():
-            parts.append("2026-11-05")
-        parts.append("2026-11-05_14-32-07_Arena1_Overhead.mp4")
-        self.out_example.setText(sep.join(parts))
+        parts = ["OpenField", "2026-11-05", "2026-11-05_14-32-07_Arena1_Overhead.mp4"]
+        if not self.date_sub.isChecked():
+            del parts[1]
+        self.out_example.setText(str(Path(self.base_path.text().strip(), *parts)))
 
     # --------------------------------------------------------- cameras
     def _refresh_devices(self) -> None:
@@ -501,13 +519,13 @@ class SettingsTab(QWidget):
         self._changed()
 
     def _update_overlay_preview(self) -> None:
-        frame = np.full((600, 800), 128, np.uint8)
+        frame = np.full((OUTPUT_HEIGHT, OUTPUT_WIDTH), 128, np.uint8)
         frame[::40, :] = 100
         frame[:, ::40] = 100
         ov = self.settings["overlay"]
         if ov.get("enabled", True):
-            frame = draw_overlay(frame, 4149, 20, True, ov)
-        self.ov_preview.setPixmap(gray_to_pixmap(frame, 400, 300))
+            frame = draw_overlay(frame, 4149, OUTPUT_FPS, True, ov)
+        self.ov_preview.setPixmap(gray_to_pixmap(frame, OUTPUT_WIDTH // 2, OUTPUT_HEIGHT // 2))
         self.ov_preview.setToolTip("Preview at half size (frame 4149, a repeated frame)")
 
     # ----------------------------------------------------- animal list
