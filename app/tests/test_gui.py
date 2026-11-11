@@ -44,17 +44,25 @@ def test_main_window_with_sim_cameras(app, tmp_path):
         time.sleep(0.02)
     assert all(v.worker is not None and v.worker.healthy for v in rec.views.values())
 
-    # The window can be made much narrower than it opens, and the feeds shrink with it.
+    # The window can be made much narrower than its full labels need, and the feeds
+    # shrink with it. (Checked against measured text widths, not fixed numbers: fonts
+    # differ between Mac and Windows.)
+    view = rec.views["Arena1_Overhead"]
+    win.resize(2400, 1000)
+    app.processEvents()
+    assert view.title.text() == view.title.full_text() == "Arena 1 Overhead"
+    assert view.toggle.text() == "Record this camera" and view.gear.text() == "Camera controls…"
+    wide_image = view.image.width()
     narrowest = win.minimumSizeHint().width()
-    assert narrowest < 950
-    win.resize(600, 400)
+    two_full_headers = 2 * (view.title.full_width() + view._long_controls_width)
+    assert narrowest < two_full_headers + 300  # 300: the animal form beside the feeds
+    win.resize(300, 300)
     app.processEvents()
     assert win.width() == narrowest
-    view = rec.views["Arena1_Overhead"]
-    assert view.image.width() < 300 and view.image.minimumWidth() <= 160
+    assert view.image.minimumWidth() <= 160 and view.image.width() < wide_image / 2
     assert view.toggle.text() == "Record" and view.gear.text() == "Controls…"  # short labels
     assert view.title.width() >= view.TITLE_MIN_WIDTH  # the camera's name keeps some room
-    assert view.title.text().endswith("…") and view.title.full_text() == "Arena 1 Overhead"
+    assert view.title.text().endswith("…")
     # Recording must not need more width: REC is shown in the (shortened) title, and
     # the timer has a line of its own.
     view.set_recording(True)
@@ -63,10 +71,11 @@ def test_main_window_with_sim_cameras(app, tmp_path):
     assert view.title.full_text().startswith("● REC")
     assert win.minimumSizeHint().width() == narrowest and win.width() == narrowest
     view.set_recording(False)
+    rec.timer_label.setText("")
     assert not view.title.full_text().startswith("● REC")
-    win.resize(1400, 900)
+    win.resize(2400, 1000)
     app.processEvents()
-    assert view.title.text() == view.title.full_text()  # room again: full title
+    assert view.title.text() == view.title.full_text()  # room again: full title, long labels
     assert view.toggle.text() == "Record this camera" and view.gear.text() == "Camera controls…"
 
     rec.forms["Arena2"].setChecked(False)
