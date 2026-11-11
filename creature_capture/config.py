@@ -72,8 +72,9 @@ STANDARD_ASSAYS: dict[str, dict[str, list[str]]] = {
                                   "phases": []},
     "Conditioned Place Preference": {"variants": [],
                                      "phases": ["Pretest", "Conditioning", "Test"]},
-    "Fear Conditioning": {"variants": [], "phases": ["Training", "Context Test", "Cue Test"]},
 }
+# The standard also lists Fear Conditioning; it is not recorded with this app,
+# so it is not offered here.
 OBJECT_KINDS = ["Familiar", "Novel", "Moved"]
 
 

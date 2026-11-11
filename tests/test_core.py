@@ -261,13 +261,15 @@ def test_phase_and_variant_only_from_the_assays_lists(tmp_path):
     common = dict(out_dir=tmp_path, stamp=s.stamp, results=results, duration_set_min=5,
                   duration_actual_s=s.elapsed_s, stopped_early=False,
                   encoder="libx264", camera_settings={}, master_log=tmp_path / "log.csv")
-    fc = {"name": "FC", "standard_assay": "Fear Conditioning", "folder": "FC", "arenas": []}
-    records.write_trial_records(assay=fc, arenas={"Arena1": {"animal_id": "M1"}},
-                                session_info={"phase": "Cue Test", "assay_variant": "Test"},
+    cpp = {"name": "CPP", "standard_assay": "Conditioned Place Preference", "folder": "CPP",
+           "arenas": []}
+    records.write_trial_records(assay=cpp, arenas={"Arena1": {"animal_id": "M1"}},
+                                session_info={"phase": "Conditioning",
+                                              "assay_variant": "Prepulse Inhibition"},
                                 **common)
     info = json.loads((tmp_path / "2026-11-05_14-32-07_Arena1_info.json").read_text())
-    assert info["phase"] == "Cue Test"
-    assert "assay_variant" not in info  # Fear Conditioning has no variants
+    assert info["phase"] == "Conditioning"
+    assert "assay_variant" not in info  # Conditioned Place Preference has no variants
     of = {"name": "Open Field", "standard_assay": "Open Field", "folder": "OF", "arenas": []}
     records.write_trial_records(assay=of, arenas={"Arena1": {"animal_id": "M1"}},
                                 session_info={"phase": "Test"}, **common)
