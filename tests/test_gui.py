@@ -152,3 +152,122 @@ def test_assay_editor_labels_and_names(app, tmp_path, monkeypatch):
     ed.accept()
     assert warnings and "only letters, digits and -" in warnings[-1]
     assert ed.result_assay is None
+
+
+def test_camera_controls_manual_and_auto(app, tmp_path):
+    from creature_capture.config import Settings
+    from creature_capture.ui.camera_controls import CameraControlsDialog
+
+    s = Settings.load(tmp_path / "s.json")
+    dlg = CameraControlsDialog(s, "Open Field", "Arena1_Overhead", None)
+    shown = lambda key: not dlg.sliders[key].isHidden()  # noqa: E731
+
+    # Defaults: exposure under manual control with auto off, so its slider is shown.
+    assert dlg.manual["auto_exposure"].isChecked() and dlg.auto_off["auto_exposure"].isChecked()
+    assert shown("exposure") and dlg.spins["exposure"].value() == -5
+    assert "exposure" not in dlg.manual and "wb_temperature" not in dlg.manual  # no box of their own
+    # White balance is left to the camera: no auto choice, no slider.
+    assert not dlg.manual["auto_wb"].isChecked()
+    assert dlg.auto_choice["auto_wb"].isHidden() and not shown("wb_temperature")
+    # Other sliders can be dragged only under manual control.
+    assert not dlg.sliders["gain"].isEnabled()
+    dlg.manual["gain"].setChecked(True)
+    assert dlg.sliders["gain"].isEnabled()
+    dlg.spins["gain"].setValue(12)
+
+    # Auto on hides the slider; only one of Auto on / Auto off can be chosen.
+    dlg.auto_on["auto_exposure"].setChecked(True)
+    assert not dlg.auto_off["auto_exposure"].isChecked() and not shown("exposure")
+    c = dlg._collect()
+    assert c["auto_exposure"] == {"apply": True, "value": 1} and not c["exposure"]["apply"]
+    assert "not locked off" in dlg.exposure_warn.text()
+
+    # Manual white balance with auto off shows its slider.
+    dlg.manual["auto_wb"].setChecked(True)
+    assert not dlg.auto_choice["auto_wb"].isHidden() and shown("wb_temperature")
+    dlg.spins["wb_temperature"].setValue(5000)
+
+    # Giving exposure back to the camera removes the choice and the slider.
+    dlg.manual["auto_exposure"].setChecked(False)
+    assert dlg.auto_choice["auto_exposure"].isHidden() and not shown("exposure")
+
+    dlg.accept()
+    saved = s.camera_settings("Open Field", "Arena1_Overhead")["controls"]
+    assert saved["auto_exposure"]["apply"] is False and saved["exposure"]["apply"] is False
+    assert saved["auto_wb"] == {"apply": True, "value": 0}
+    assert saved["wb_temperature"] == {"apply": True, "value": 5000}
+    assert saved["gain"] == {"apply": True, "value": 12}
+    assert list(saved) == ["auto_exposure", "exposure", "gain", "brightness", "contrast", "gamma",
+                           "sharpness", "auto_wb", "wb_temperature"]
+
+    # Reopening shows what was saved. A manual exposure saved without its auto mode
+    # (possible in the old window) is shown as manual control, auto off.
+    saved["exposure"] = {"apply": True, "value": -7}
+    dlg = CameraControlsDialog(s, "Open Field", "Arena1_Overhead", None)
+    assert dlg.manual["auto_exposure"].isChecked() and dlg.auto_off["auto_exposure"].isChecked()
+    assert dlg.spins["exposure"].value() == -7 and dlg.spins["wb_temperature"].value() == 5000
+    assert dlg.exposure_warn.text() == ""
+    dlg.reject()
+
+
+def test_camera_controls_in_the_cameras_table(app, tmp_path, monkeypatch):
+    from PySide6.QtWidgets import QInputDialog, QPushButton
+
+    from creature_capture.app import MainWindow
+    from creature_capture.config import Settings
+    from creature_capture.ui import settings_tab
+
+    s = Settings.load()
+    s["base_path"] = str(tmp_path / "videos")
+    win = MainWindow(s)
+    st = win.settings_tab
+    opened = []
+
+    class FakeDialog:
+        def __init__(self, settings, assay_name, slot_id, worker, parent):
+            opened.append((assay_name, slot_id, worker))
+
+        def exec(self):
+            return 0
+
+    monkeypatch.setattr(settings_tab, "CameraControlsDialog", FakeDialog)
+
+    # Every camera position has its controls button in the row where it is assigned.
+    buttons = [st.slot_table.cellWidget(r, 2) for r in range(st.slot_table.rowCount())]
+    assert len(buttons) == 5 and all(isinstance(b, QPushButton) for b in buttons)
+
+    # Used by one experiment: opens straight away, and selects that row for the preview.
+    buttons[1].click()
+    assert opened == [("Open Field", "Arena1_Horizontal", None)]  # no camera assigned in this test
+    assert st.slot_table.currentRow() == 1
+
+    # Camera 5 is used by two experiments: it asks which.
+    assert st._experiments_for("Camera5") == (["Elevated Plus", "Puzzle Box"], True)
+    monkeypatch.setattr(st, "_choose_experiment", lambda slot_id, button: "Puzzle Box")
+    buttons[4].click()
+    assert opened[-1] == ("Puzzle Box", "Camera5", None)
+    monkeypatch.setattr(st, "_choose_experiment", lambda slot_id, button: None)  # menu dismissed
+    buttons[4].click()
+    assert len(opened) == 2
+
+    # A newly added camera position gets its controls too, for any experiment.
+    monkeypatch.setattr(QInputDialog, "getText", lambda *a, **k: ("Arena 3 Overhead", True))
+    st._add_slot()
+    assert st.slot_table.rowCount() == 6
+    new_button = st.slot_table.cellWidget(5, 2)
+    assert isinstance(new_button, QPushButton)
+    assert st._experiments_for("Arena3Overhead") == (
+        ["Open Field", "Elevated Plus", "Puzzle Box"], False)
+    monkeypatch.setattr(st, "_choose_experiment", lambda slot_id, button: "Open Field")
+    new_button.click()
+    assert opened[-1] == ("Open Field", "Arena3Overhead", None)
+    # ... and starts from the standard defaults (manual exposure, auto off, -5).
+    from creature_capture.camera import effective_controls
+    c = effective_controls(s.camera_settings("Open Field", "Arena3Overhead")["controls"])
+    assert c["auto_exposure"] == {"apply": True, "value": 0} and c["exposure"]["value"] == -5
+
+    # Locking the settings locks the buttons with the rest of the table.
+    st.lock.setChecked(True)
+    assert not st.slot_table.cellWidget(0, 2).isEnabled()
+    win.cameras.shutdown()
+    win.close()

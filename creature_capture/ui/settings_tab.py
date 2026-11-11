@@ -10,7 +10,7 @@ import numpy as np
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import (
     QCheckBox, QComboBox, QDoubleSpinBox, QFileDialog, QFormLayout, QGridLayout, QGroupBox,
-    QHBoxLayout, QHeaderView, QInputDialog, QLabel, QLineEdit, QListWidget, QMessageBox,
+    QHBoxLayout, QHeaderView, QInputDialog, QLabel, QLineEdit, QListWidget, QMenu, QMessageBox,
     QPushButton, QScrollArea, QSpinBox, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
@@ -20,6 +20,7 @@ from creature_capture.config import (
 )
 from creature_capture.recorder import draw_overlay
 from creature_capture.ui.assay_editor import AssayEditor
+from creature_capture.ui.camera_controls import CameraControlsDialog
 from creature_capture.ui.common import CameraManager, CameraView, EncoderProbe, gray_to_pixmap
 
 
@@ -97,11 +98,14 @@ class SettingsTab(QWidget):
 
     def _build_cameras(self) -> QGroupBox:
         """Which physical camera is at each camera position."""
-        cam_box = QGroupBox("Cameras - assign each physical camera to a camera position")
-        self.slot_table = QTableWidget(0, 2)
-        self.slot_table.setHorizontalHeaderLabels(["Camera position", "Physical camera"])
-        self.slot_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
-        self.slot_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        cam_box = QGroupBox("Cameras - assign each physical camera to a camera position and set its controls")
+        self.slot_table = QTableWidget(0, 3)
+        self.slot_table.setHorizontalHeaderLabels(
+            ["Camera position", "Physical camera", "Camera settings"])
+        header = self.slot_table.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
         self.slot_table.verticalHeader().hide()
         self.slot_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.slot_table.itemSelectionChanged.connect(self._preview_selected)
@@ -123,8 +127,10 @@ class SettingsTab(QWidget):
         cam_help = QLabel(
             "Each camera is remembered by the USB port it is plugged into, so keep every "
             "camera in the same port. Select a row to see that camera's live feed and confirm "
-            "it is the right one. Camera brightness/exposure etc. are set per experiment from "
-            "the <i>Camera controls…</i> button on the Record tab.")
+            "it is the right one. <i>Camera controls…</i> in the same row sets its exposure, "
+            "gain etc. These are kept separately for each experiment, so a camera used by more "
+            "than one experiment asks which. (The same window opens from the button above each "
+            "feed on the Record tab.)")
         cam_help.setWordWrap(True)
         left = QVBoxLayout()
         left.addWidget(cam_help)
@@ -367,6 +373,10 @@ class SettingsTab(QWidget):
                 combo.setCurrentIndex(combo.count() - 1)
             combo.currentIndexChanged.connect(lambda _=None, sid=slot["id"], c=combo: self._assign(sid, c))
             self.slot_table.setCellWidget(r, 1, combo)
+            controls = QPushButton("Camera controls…")
+            controls.clicked.connect(
+                lambda _=None, sid=slot["id"], b=controls: self._open_camera_controls(sid, b))
+            self.slot_table.setCellWidget(r, 2, controls)
         if 0 <= sel < self.slot_table.rowCount():
             self.slot_table.selectRow(sel)
         self._loading = False
@@ -386,6 +396,35 @@ class SettingsTab(QWidget):
         self._changed()
         self.slot_table.selectRow(next(i for i, s in enumerate(self.settings.slots) if s["id"] == slot_id))
         self._preview_selected()
+
+    def _experiments_for(self, slot_id: str) -> tuple[list[str], bool]:
+        """The experiments a camera position's controls can be set for: the ones
+        that use it, or every experiment if none does yet (a new position).
+        Also returns whether any experiment uses it."""
+        using = [a["name"] for a in self.settings.assays
+                 if any(c["slot"] == slot_id for ar in a["arenas"] for c in ar["cameras"])]
+        return (using or [a["name"] for a in self.settings.assays]), bool(using)
+
+    def _choose_experiment(self, slot_id: str, button: QPushButton) -> str | None:
+        """Camera controls are kept per experiment: ask which, if there is a choice."""
+        names, in_use = self._experiments_for(slot_id)
+        if len(names) == 1:
+            return names[0]
+        menu = QMenu(self)
+        menu.addAction("Camera controls for which experiment?" if in_use else
+                       "Not used by an experiment yet. Set its controls for:").setEnabled(False)
+        for name in names:
+            menu.addAction(name)
+        chosen = menu.exec(button.mapToGlobal(button.rect().bottomLeft()))
+        return chosen.text() if chosen else None
+
+    def _open_camera_controls(self, slot_id: str, button: QPushButton) -> None:
+        row = next(i for i, s in enumerate(self.settings.slots) if s["id"] == slot_id)
+        self.slot_table.selectRow(row)  # the preview shows the camera being adjusted
+        assay_name = self._choose_experiment(slot_id, button)
+        if assay_name:
+            worker = self.cameras.worker_for_slot(slot_id)  # None if not assigned / connected
+            CameraControlsDialog(self.settings, assay_name, slot_id, worker, self).exec()
 
     def _preview_selected(self) -> None:
         if self._loading:

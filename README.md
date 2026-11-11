@@ -49,12 +49,19 @@ whether the NVIDIA encoder works, and the result of a 3-second test recording.
    Select a row to see its live feed and confirm it is the right camera.
    Cameras are remembered by the USB port they are plugged into, so **keep every camera in the same port**.
    Click **Refresh camera list** after plugging cameras in.
-3. **Camera controls**: on the Record tab, pick an experiment and click **Camera controls…**
-   above a feed. Settings are saved for that camera *in that experiment* (so Camera 5 has
-   separate settings for Elevated Plus and Puzzle Box). Untick *Apply* to leave a control at the
-   camera's own value. Keep **Auto exposure off** and **exposure at -5 or lower** (1/32 s or shorter):
-   a longer exposure cannot deliver 20 fps. *Open camera driver dialog…* gives access to the
-   camera's own settings window, including anti-flicker (power-line frequency).
+3. **Camera controls**: click **Camera controls…** in the camera's row, next to where it is
+   assigned. The same window opens from the **Camera controls…** button above each feed on the
+   Record tab. Settings are saved for that camera *in that experiment* (so Camera 5 has separate
+   settings for Elevated Plus and Puzzle Box, and its button asks which). A camera position you
+   add gets the same button and starts from the standard settings.
+   * Tick **Manual control** to set a value yourself with its slider. Unticked, the camera keeps
+     control of that setting.
+   * **Auto exposure** and **Auto white balance** have one Manual control box each. Ticked, choose
+     **Auto on** or **Auto off**; with Auto off, the Exposure or White balance slider appears.
+   * Keep exposure under manual control with **Auto off** and the slider at **-5 or lower**
+     (1/32 s or shorter): a longer exposure cannot deliver 20 fps.
+   * *Open camera driver dialog…* gives access to the camera's own settings window, including
+     anti-flicker (power-line frequency).
 4. **Lock settings**: tick the box at the top of Settings. While it is ticked nothing in
    Settings, and no camera controls, can be changed; untick it deliberately to make a change.
 
@@ -135,7 +142,7 @@ by itself. In short:
   like the video), and `error` (only if there was one). `camera_settings` lists every setting
   used, changed or not: the video `encoder` plus each camera control (auto_exposure, exposure,
   gain, brightness, contrast, gamma, sharpness, auto_wb, wb_temperature) with `apply` and
-  `value`. `apply: false` means the camera was left at its own value.
+  `value`. `apply` is the **Manual control** box: `false` means the camera kept control.
 * Creature Capture's own fields are in a `creature_capture` object: `experiment` (the
   experiment's name) and `gpu`.
 

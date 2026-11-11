@@ -3,16 +3,21 @@
 Last updated 2026-11-10. Tick items off as they're done.
 
 Where things stand: v0.1.0 is the released version. `main` is ahead of it with the
-Track Tamer metadata standard, the code review fixes, Puzzle Box as a standard assay
-and the Trial day / Session dropdowns. Builds from `main` now report version 0.2.0,
-so files made while testing are labelled with the new version. Every commit on `main`
-passes the automated tests and the Windows build, but **nothing has run on the
+Track Tamer metadata standard, the code review fixes, Puzzle Box as a standard assay,
+the Trial day / Session dropdowns, greyed-out feeds for cameras that won't be
+recorded, and a 90 min length for Open Field. Builds from `main` report version
+0.2.0, so files made while testing are labelled with the new version. Every commit on
+`main` passes the automated tests and the Windows build, but **nothing has run on the
 recording PC yet**. The v0.2.0 release is not tagged until phases 1 and 2 are settled.
+
+Build to test on the recording PC: `CreatureCapture-0.2.0-4e73690-windows.zip`, from
+the GitHub Actions run for commit `4e73690` (download available until 2026-12-11).
+If `main` has moved on since, use the newest green run instead.
 
 ## Phase 1: Prove it on the recording PC
 
-- [ ] Install the latest build from a USB drive (zip from the newest green run under
-      GitHub Actions).
+- [ ] Install the test build above from a USB drive. The window title should say
+      Creature Capture 0.2.0.
 - [ ] Run `CreatureCapture.exe --self-test` and confirm `selftest.txt` shows
       `h264_nvenc` available with the Quadro RTX 4000. If not, install NVIDIA driver
       582.99 and run it again.
@@ -23,6 +28,15 @@ recording PC yet**. The v0.2.0 release is not tagged until phases 1 and 2 are se
       on the next start.
 - [ ] Try the newer form fields in real use: Assay type, Variant, Phase, the objects
       table, Trial day, and Session that day (Puzzle Box).
+- [ ] Untick an arena and a single camera and check the greyed-out NOT RECORDING
+      feeds are clear enough on the PC's screen, including a position with no camera.
+- [ ] Check Open Field offers 90 min and a 90 min trial records and saves correctly.
+- [ ] Camera controls (the button in each camera's row in Settings → Cameras, or the
+      button above a feed): with
+      the real cameras, check that Manual control, Auto on / Auto off and the sliders
+      change the picture as expected, and that "Camera reports" shows the values.
+      These controls only act on real cameras under Windows, so this is their first
+      real test.
 - [ ] Check the video names suit downstream tools. Elevated Plus videos are now
       `<date>_<time>_EPM_Overhead.mp4`.
 
@@ -70,3 +84,11 @@ Once phases 1 and 2 are settled:
       be recorded.
 - [x] Puzzle Box added as a standard assay, with Trial day and Session that day. Not
       analyzed in Track Tamer for now.
+- [x] Trial day is the same pick-or-type list for every experiment; Session that day
+      appears only for experiments with more than one session per trial day.
+- [x] Version raised to 0.2.0 on `main` (release not tagged yet).
+- [x] Feeds that won't be recorded are greyed out and marked NOT RECORDING, with or
+      without a camera assigned.
+- [x] Open Field length choices include 90 min.
+- [x] Camera controls reworded to "Manual control" with Auto on / Auto off for
+      exposure and white balance, and also opened from each camera's row in Settings.
