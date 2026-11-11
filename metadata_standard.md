@@ -136,7 +136,7 @@ case and spaces at the ends.
 | `Object Recognition` | built | `Novel Object Recognition`, `Spatial Object Recognition` | `Habituation`, `Training`, `Test` |
 | `Acoustic Startle Response` | planned (ROADMAP §13) | `Prepulse Inhibition`, `Startle Habituation` | |
 | `Conditioned Place Preference` | planned | | `Pretest`, `Conditioning`, `Test` |
-| `Puzzle Box` | not decided (listed so the name is the same everywhere) | | |
+| `Puzzle Box` | not analyzed in Track Tamer for now (listed for consistency) | | |
 | `Skilled Reaching` | not analyzed in Track Tamer (listed for consistency) | | |
 
 Variants of one assay share Track Tamer's analysis: an object trial is
