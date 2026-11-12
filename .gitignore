@@ -10,3 +10,6 @@ dist/
 
 # Local test recordings
 examples/
+
+# Test files (removed after each run)
+app/tests/.tmp/

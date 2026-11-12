@@ -72,12 +72,17 @@ def program_folder_containing(path: str | Path) -> Path | None:
     here = program_folder()
     for folder in (p, *p.parents):
         try:
-            if (folder == here or (folder / "CreatureCapture.exe").is_file()
-                    or (folder / "app" / "creature_capture" / "__init__.py").is_file()):
+            if folder == here or _is_program_folder(folder):
                 return folder
         except OSError:
             continue
     return None
+
+
+def _is_program_folder(folder: Path) -> bool:
+    """A Windows build (holds CreatureCapture.exe) or a copy run from source."""
+    return ((folder / "CreatureCapture.exe").is_file()
+            or (folder / "app" / "creature_capture" / "__init__.py").is_file())
 
 
 def program_folder_warning(path: str | Path) -> str:
