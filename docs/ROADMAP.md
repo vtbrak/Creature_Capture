@@ -103,3 +103,5 @@ Once phases 1 and 2 are settled:
       labels when space is tight (2026-11-11).
 - [x] A feed is flagged (orange, or red below 20 fps) when its camera runs below the
       rate asked for or stops sending frames (2026-11-11).
+- [x] The per-arena `_info.csv` is no longer written: the same row is already in the
+      experiment's log, and the `_info.json` has everything else (2026-11-11).

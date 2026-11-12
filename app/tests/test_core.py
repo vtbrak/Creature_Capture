@@ -155,7 +155,10 @@ def test_trial_records_and_master_log(tmp_path):
                                               "controls": {"gain": {"apply": True, "value": 12}}}},
         master_log=log)
     assert ok
-    assert (tmp_path / "2026-11-05_14-32-07_Arena1_info.csv").exists()
+    # One info JSON per arena and nothing else; the trial is also in the log.
+    assert sorted(f.name for f in files) == ["2026-11-05_14-32-07_Arena1_info.json",
+                                             "2026-11-05_14-32-07_Arena2_info.json"]
+    assert not list(tmp_path.glob("*_info.csv"))
     info = json.loads((tmp_path / "2026-11-05_14-32-07_Arena1_info.json").read_text())
 
     # Track Tamer metadata standard, schema 1

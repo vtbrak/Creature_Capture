@@ -118,8 +118,11 @@ def write_trial_records(
     master_log: Path,
 ) -> tuple[list[Path], bool]:
     """Write <stamp>_<arena>_info.json (Track Tamer metadata standard, schema 1)
-    and <stamp>_<arena>_info.csv next to the videos, and append to the
-    experiment's master log. Returns (info files written, master log updated)."""
+    next to the videos, and append one row per arena to the experiment's master
+    log. Returns (info files written, master log updated).
+
+    The JSON is written once and never rewritten: Track Tamer adds its own
+    `track_tamer` object to it afterwards."""
     written = []
     log_ok = True
     date_s, time_s = stamp.split("_", 1)
@@ -130,7 +133,7 @@ def write_trial_records(
     for arena_name, animal in arenas.items():
         arena = arena_slug(arena_name)
         arena_results = [r for r in results if r.arena == arena_name]
-        # The trial as text: the CSV row as it is, and the base of the JSON.
+        # The trial as text: the log row as it is, and the base of the JSON.
         trial = {
             "date": date_s,
             "start_time": time_s.replace("-", ":"),
@@ -155,14 +158,6 @@ def write_trial_records(
             "encoder": encoder,
             "app_version": __version__,
         }
-        base = out_dir / f"{stamp}_{arena}_info"
-        csv_path = base.with_suffix(".csv")
-        with open(csv_path, "w", newline="", encoding="utf-8") as f:
-            w = csv.DictWriter(f, fieldnames=LOG_COLUMNS)
-            w.writeheader()
-            w.writerow(row)
-        written.append(csv_path)
-
         # The JSON: same fields with JSON types, and blank ones left out.
         info = _drop_empty({
             "schema_version": SCHEMA_VERSION,
@@ -185,7 +180,7 @@ def write_trial_records(
             "experiment": assay["name"],
             "gpu": encoder == "h264_nvenc",
         }
-        json_path = base.with_suffix(".json")
+        json_path = out_dir / f"{stamp}_{arena}_info.json"
         _write_atomic(json_path, lambda f: json.dump(info, f, indent=2, ensure_ascii=False))
         written.append(json_path)
 

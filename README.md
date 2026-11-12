@@ -104,9 +104,7 @@ D:\BehaviorVideos\OpenField\
     ├── 2026-11-05_14-32-07_Arena1_Horizontal.mp4
     ├── 2026-11-05_14-32-07_Arena2_Overhead.mp4
     ├── 2026-11-05_14-32-07_Arena2_Horizontal.mp4
-    ├── 2026-11-05_14-32-07_Arena1_info.csv    ← animal + session info, length set/actual, repeated frames
-    ├── 2026-11-05_14-32-07_Arena1_info.json   ← same plus exact start time and per-camera details
-    ├── 2026-11-05_14-32-07_Arena2_info.csv
+    ├── 2026-11-05_14-32-07_Arena1_info.json   ← animal + session info, length set/actual, per-camera details
     ├── 2026-11-05_14-32-07_Arena2_info.json
     └── 2026-11-05_14-32-07_<arena>_<camera>_frames.csv ← per-frame timestamps for each camera
 ```
@@ -115,17 +113,20 @@ Every video is named `<date>_<time>_<arena>_<camera label>.mp4`, so an Elevated 
 gives `2026-11-05_14-32-07_EPM_Overhead.mp4`. Arena names and camera labels use only letters,
 digits and `-`.
 
-Log and `_info.csv` columns (for people; Track Tamer reads only the JSON): date, start_time,
+Log columns (the log is for people; Track Tamer reads only the JSON): date, start_time,
 assay, assay_variant, phase, arena, experimenter, cohort, animal_id, sex, strain, dob, treatment,
 trial_day, session_number, notes, duration_set_min, duration_actual_s, stopped_early, frames,
 repeated_frames, videos, encoder, app_version. A master log from an older version gets the new
-columns added automatically the first time a trial is logged.
+columns added automatically the first time a trial is logged. Earlier versions also wrote
+an `_info.csv` per arena with the same row; it is no longer written because the log already has it.
 
 ### The info file (`_info.json`)
 
 The `_info.json` follows the **Track Tamer video metadata standard, schema 1 (draft)**
 ([docs/metadata_standard.md](docs/metadata_standard.md)), so Track Tamer can fill in the trial details
-by itself. In short:
+by itself. Creature Capture writes each info file once, when the trial ends, and never changes
+it afterwards. Track Tamer later adds its own `track_tamer` section to the file (the setup drawn
+for that video and its tracking settings), leaving everything below as written. In short:
 
 * `schema_version` (`1`), `app_name`, `app_version`, and `date` and `start_time` from this
   computer's clock.
