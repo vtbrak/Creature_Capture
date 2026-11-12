@@ -552,6 +552,20 @@ class RecordTab(QWidget):
         if problems:
             QMessageBox.warning(self, "Cannot start recording", "\n".join(problems))
             return
+        # The experiment and date subfolders are made as needed, but a missing video
+        # folder usually means a drive not plugged in or a folder moved: ask first,
+        # so new trials don't silently land away from the earlier ones.
+        base = Path(self.settings["base_path"])
+        if not base.is_dir() and QMessageBox.question(
+            self, "Video folder not found",
+            f"The video folder doesn't exist:\n{base}\n\n"
+            "The drive may not be plugged in, or the folder may have been moved or renamed. "
+            "If it moved, choose its new place in Settings → Output.\n\n"
+            "Create a new, empty folder here and record into it?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        ) != QMessageBox.StandardButton.Yes:
+            return
         try:
             out_dir.mkdir(parents=True, exist_ok=True)
         except OSError as e:

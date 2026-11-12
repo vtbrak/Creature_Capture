@@ -51,6 +51,47 @@ def animals_path() -> Path:
     return app_data_dir() / "animals.csv"
 
 
+def program_folder() -> Path:
+    """The folder this copy of Creature Capture runs from: the unzipped folder that
+    holds CreatureCapture.exe, or the main folder of a copy run from source."""
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
+    return Path(__file__).resolve().parents[2]
+
+
+def program_folder_containing(path: str | Path) -> Path | None:
+    """The Creature Capture program folder (this copy or another) that `path` is
+    inside, or None. Videos kept there are left behind when a new version is
+    unzipped somewhere else."""
+    if not str(path).strip():
+        return None
+    try:
+        p = Path(path).expanduser().resolve()
+    except (OSError, RuntimeError, ValueError):
+        return None
+    here = program_folder()
+    for folder in (p, *p.parents):
+        try:
+            if (folder == here or (folder / "CreatureCapture.exe").is_file()
+                    or (folder / "app" / "creature_capture" / "__init__.py").is_file()):
+                return folder
+        except OSError:
+            continue
+    return None
+
+
+def program_folder_warning(path: str | Path) -> str:
+    """Plain-language warning when the video folder is inside a program folder."""
+    folder = program_folder_containing(path)
+    if folder is None:
+        return ""
+    which = ("this copy of Creature Capture" if folder == program_folder()
+             else "a different copy of Creature Capture, not the one running now")
+    return (f"The video folder is inside the program folder of {which}:\n{folder}\n\n"
+            "Videos saved there are left behind when a new version is unzipped somewhere "
+            "else. Choose a folder outside it, for example D:\\BehaviorVideos.")
+
+
 def default_base_path() -> str:
     if sys.platform == "win32":
         if Path("D:/").exists():

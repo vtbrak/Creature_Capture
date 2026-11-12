@@ -465,3 +465,20 @@ def test_camera_rate_below_what_was_asked_is_flagged():
     # The rate reads low for the first moments after a camera opens: no flag yet.
     starting = _worker_with_frames(10, 1)
     assert not starting.fps_settled and starting.rate_flag() == ""
+
+
+def test_video_folder_inside_a_program_folder(tmp_path):
+    """Videos kept inside a program folder are left behind by the next version."""
+    from creature_capture.config import (
+        program_folder, program_folder_containing, program_folder_warning,
+    )
+    other = tmp_path / "CreatureCapture-old"
+    other.mkdir()
+    (other / "CreatureCapture.exe").write_bytes(b"")
+    assert program_folder_containing(other / "Videos" / "OpenField") == other
+    assert "a different copy" in program_folder_warning(other / "Videos")
+    assert program_folder_containing(program_folder() / "Videos") == program_folder()
+    assert "this copy" in program_folder_warning(program_folder() / "Videos")
+    assert program_folder_containing(tmp_path / "BehaviorVideos") is None
+    assert program_folder_warning(tmp_path / "BehaviorVideos") == ""
+    assert program_folder_containing("") is None

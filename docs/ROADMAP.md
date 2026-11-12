@@ -1,18 +1,19 @@
 # Creature Capture roadmap
 
-Last updated 2026-11-11. Tick items off as they're done.
+Last updated 2026-11-12. Tick items off as they're done.
 
-Where things stand: v0.1.0 is the released version. `main` is ahead of it with the
+Where things stand: v0.2.0 is the released version (tagged 2026-11-12). It adds the
 Track Tamer metadata standard, the code review fixes, Puzzle Box as a standard assay,
 the Trial day / Session dropdowns, greyed-out feeds for cameras that won't be
-recorded, and a 90 min length for Open Field. Builds from `main` report version
-0.2.0, so files made while testing are labelled with the new version. Every commit on
-`main` passes the automated tests and the Windows build, but **nothing has run on the
-recording PC yet**. The v0.2.0 release is not tagged until phases 1 and 2 are settled.
+recorded, a 90 min length for Open Field, the new camera controls, the slow-camera
+flag, and drops the per-arena `_info.csv`. Every commit on `main` passes the automated
+tests and the Windows build, but **nothing has run on the recording PC yet**.
 
-Build to test on the recording PC: the zip from the newest green run under GitHub
-Actions (downloads last 30 days). It is named `CreatureCapture-0.2.0-<commit>-windows.zip`;
-the commit letters tell builds apart, since they all report 0.2.0 until the release.
+Every release gets a `v` tag on GitHub (v0.1.0, v0.2.0, …), which attaches the Windows
+zip to a GitHub Release that doesn't expire. Build to test on the recording PC: the zip
+on the newest release, or for a commit after it, the zip from that commit's green run
+under GitHub Actions (downloads last 30 days, named
+`CreatureCapture-<version>-<commit>-windows.zip`).
 
 ## Phase 1: Prove it on the recording PC
 
@@ -59,14 +60,13 @@ draft, and Track Tamer plans to read these files only after its own 1.0.
       says the Boom Box app records it.
 - [ ] Take the standard out of draft.
 
-## Phase 3: Release v0.2.0
-
-Once phases 1 and 2 are settled:
+## Phase 3: Release
 
 - [x] Raise the version number to 0.2.0 (done 2026-11-10, so test builds are
       labelled correctly).
-- [ ] Tag `v0.2.0` so the Windows zip is attached to a GitHub Release.
+- [x] Tag `v0.2.0` so the Windows zip is attached to a GitHub Release (2026-11-12).
 - [ ] Update the README install steps to cover the offline USB route.
+- [ ] Once phases 1 and 2 are settled, raise the version again and tag that release.
 
 ## Later
 
@@ -88,7 +88,7 @@ Once phases 1 and 2 are settled:
       analyzed in Track Tamer for now.
 - [x] Trial day is the same pick-or-type list for every experiment; Session that day
       appears only for experiments with more than one session per trial day.
-- [x] Version raised to 0.2.0 on `main` (release not tagged yet).
+- [x] v0.2.0 released and tagged, with the Windows zip (2026-11-12).
 - [x] Feeds that won't be recorded are greyed out and marked NOT RECORDING, with or
       without a camera assigned.
 - [x] Open Field length choices include 90 min.
@@ -105,3 +105,7 @@ Once phases 1 and 2 are settled:
       rate asked for or stops sending frames (2026-11-11).
 - [x] The per-arena `_info.csv` is no longer written: the same row is already in the
       experiment's log, and the `_info.json` has everything else (2026-11-11).
+- [x] Video folder checks for updates: a warning when the video folder is inside a
+      Creature Capture program folder (in Settings and at startup), and a question
+      before recording when the video folder can't be found, instead of silently
+      making a new one. README says what an update needs: nothing to copy (2026-11-12).

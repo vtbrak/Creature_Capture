@@ -13,7 +13,7 @@ from PySide6.QtWidgets import (
 )
 
 from creature_capture import APP_NAME, __version__, ffmpeg_util
-from creature_capture.config import Settings, app_data_dir
+from creature_capture.config import Settings, app_data_dir, program_folder_warning
 from creature_capture.ui.common import CameraManager, EncoderProbe
 from creature_capture.ui.record_tab import RecordTab
 from creature_capture.ui.settings_tab import SettingsTab
@@ -91,6 +91,16 @@ class MainWindow(QMainWindow):
         event.accept()
 
 
+def check_video_folder(win: MainWindow, settings: Settings) -> None:
+    """Say so at startup when the video folder is inside a Creature Capture
+    program folder (this copy or an older one), and offer to open Settings."""
+    warning = program_folder_warning(settings["base_path"])
+    if warning and QMessageBox.question(
+        win, "Check the video folder", f"{warning}\n\nOpen Settings to change it now?",
+    ) == QMessageBox.StandardButton.Yes:
+        win.tabs.setCurrentWidget(win.settings_tab)
+
+
 def recover_unfinished(parent, settings: Settings) -> None:
     """Offer to repair videos left in crash-safe form by a crash/power loss."""
     files = ffmpeg_util.find_unfinished(Path(settings["base_path"]))
@@ -156,6 +166,7 @@ def main() -> None:
     settings = Settings.load()
     win = MainWindow(settings)
     win.show()
+    check_video_folder(win, settings)
     recover_unfinished(win, settings)
     sys.exit(app.exec())
 

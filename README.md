@@ -27,6 +27,13 @@ Synchronized multi-camera video acquisition for animal behavior experiments
 Settings are stored in `%APPDATA%\CreatureCapture\`, **not** in the app folder, so
 installing a newer build keeps all camera assignments and settings.
 
+**Updating to a new version:** unzip the new build (to a new folder or over the old one)
+and run it. There is nothing to copy: settings, experiments, camera assignments, camera
+controls and the animal list are all in `%APPDATA%\CreatureCapture\`, and videos and logs
+are in the video folder chosen in Settings → Output (`D:\BehaviorVideos` by default). Keep
+the video folder outside the app folder; the app warns if it isn't, and asks before
+recording if the video folder can't be found (drive not plugged in, or folder moved).
+
 ### Check the install (optional)
 
 Open a Command Prompt in the app folder and run:

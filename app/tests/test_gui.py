@@ -346,3 +346,70 @@ def test_slow_camera_is_flagged_on_its_feed(app):
     assert view.image.styleSheet() == view.OFF_STYLE and "too slow" in view.status.text()
     view.set_off(False)
     assert view.image.styleSheet() == view.RATE_STYLE["too_slow"]
+
+
+def test_video_folder_checks(app, tmp_path, monkeypatch):
+    """A missing video folder is not silently created, and one inside a program
+    folder is pointed out in Settings."""
+    from PySide6.QtWidgets import QFileDialog, QMessageBox
+
+    from creature_capture.app import MainWindow
+    from creature_capture.config import Settings
+
+    s = Settings.load()
+    s["simulated_cameras"] = 5
+    s["base_path"] = str(tmp_path / "moved")
+    for slot, i in zip(s.slots, range(5)):
+        slot["device"] = {"id": f"sim:{i}", "name": f"sim:{i}"}
+    s.save()
+    win = MainWindow(s)
+    rec = win.record
+    deadline = time.time() + 3
+    while time.time() < deadline and not all(
+            v.worker is not None and v.worker.healthy for v in rec.views.values()):
+        app.processEvents()
+        time.sleep(0.02)
+    rec.experimenter.setText("ES")
+    rec.forms["Arena1"].fields["animal_id"].setText("M1")
+    rec.forms["Arena2"].fields["animal_id"].setText("M2")
+    rec.duration.setCurrentText("0.02")
+
+    asked = []
+    answer = QMessageBox.StandardButton.No
+    monkeypatch.setattr(QMessageBox, "question", lambda *a, **k: asked.append(a[2]) or answer)
+    monkeypatch.setattr(QMessageBox, "warning", lambda *a, **k: asked.append("WARN " + a[2]))
+    monkeypatch.setattr(QMessageBox, "critical", lambda *a, **k: asked.append("ERR " + a[2]))
+    monkeypatch.setattr(QMessageBox, "exec", lambda self: 0)  # end-of-trial summary
+    rec.start_recording()
+    assert len(asked) == 1 and "doesn't exist" in asked[0], asked
+    assert not rec.is_recording and not (tmp_path / "moved").exists()
+
+    answer = QMessageBox.StandardButton.Yes
+    rec.start_recording()
+    assert rec.is_recording and (tmp_path / "moved").is_dir()
+    deadline = time.time() + 30
+    while rec.is_recording and time.time() < deadline:
+        app.processEvents()
+        time.sleep(0.02)
+    assert not rec.is_recording
+
+    # Settings: a folder inside a copy of the program is pointed out, and choosing
+    # one with Browse asks first.
+    copy = tmp_path / "CreatureCapture-0.1.0"
+    copy.mkdir()
+    (copy / "CreatureCapture.exe").write_bytes(b"")
+    st = win.settings_tab
+    assert st.out_warning.isHidden()
+    st.base_path.setText(str(copy / "Videos"))
+    st._save_output()
+    assert not st.out_warning.isHidden() and "different copy" in st.out_warning.text()
+    st.base_path.setText(str(tmp_path / "BehaviorVideos"))
+    st._save_output()
+    assert st.out_warning.isHidden()
+    monkeypatch.setattr(QFileDialog, "getExistingDirectory", lambda *a, **k: str(copy / "Videos"))
+    answer = QMessageBox.StandardButton.No
+    asked.clear()
+    st._browse()
+    assert len(asked) == 1 and s["base_path"] == str(tmp_path / "BehaviorVideos")
+    win.cameras.shutdown()
+    win.close()

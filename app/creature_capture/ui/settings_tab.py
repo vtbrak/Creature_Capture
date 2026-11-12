@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
 from creature_capture import records
 from creature_capture.config import (
     OUTPUT_FPS, OUTPUT_HEIGHT, OUTPUT_WIDTH, Settings, animals_path, app_data_dir,
+    program_folder_warning,
 )
 from creature_capture.recorder import draw_overlay
 from creature_capture.ui.assay_editor import AssayEditor
@@ -88,11 +89,17 @@ class SettingsTab(QWidget):
         self.disk_warn.valueChanged.connect(self._save_output)
         self.out_example = QLabel("")
         self.out_example.setStyleSheet("color:#555;")
+        # Shown when the folder is inside a Creature Capture program folder.
+        self.out_warning = QLabel("")
+        self.out_warning.setWordWrap(True)
+        self.out_warning.setStyleSheet("color:#c00;")
+        self.out_warning.hide()
         f = QFormLayout(out_box)
         f.addRow("Base folder", row)
         f.addRow("", self.date_sub)
         f.addRow("Warn when free space below", self.disk_warn)
         f.addRow("Example", self.out_example)
+        f.addRow("", self.out_warning)
         self.lockable += [self.base_path, browse, self.date_sub, self.disk_warn]
         return out_box
 
@@ -327,9 +334,18 @@ class SettingsTab(QWidget):
     # ---------------------------------------------------------- output
     def _browse(self) -> None:
         d = QFileDialog.getExistingDirectory(self, "Choose base folder", self.base_path.text())
-        if d:
-            self.base_path.setText(str(Path(d)))
-            self._save_output()
+        if not d:
+            return
+        warning = program_folder_warning(d)
+        if warning and QMessageBox.question(
+            self, "Video folder inside the program folder",
+            f"{warning}\n\nUse this folder anyway?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        ) != QMessageBox.StandardButton.Yes:
+            return
+        self.base_path.setText(str(Path(d)))
+        self._save_output()
 
     def _save_output(self) -> None:
         self.settings["base_path"] = self.base_path.text().strip()
@@ -343,6 +359,15 @@ class SettingsTab(QWidget):
         if not self.date_sub.isChecked():
             del parts[1]
         self.out_example.setText(str(Path(self.base_path.text().strip(), *parts)))
+        # Short form on screen (no path, which can't wrap); the full text is the tooltip.
+        warning = program_folder_warning(self.base_path.text().strip())
+        which = "a different copy" if "different copy" in warning else "this copy"
+        self.out_warning.setText(
+            f"⚠ This folder is inside the program folder of {which} of Creature Capture. "
+            "Videos saved there are left behind when a new version is unzipped somewhere "
+            "else, so choose a folder outside it." if warning else "")
+        self.out_warning.setToolTip(warning)
+        self.out_warning.setVisible(bool(warning))
 
     # --------------------------------------------------------- cameras
     def _refresh_devices(self) -> None:
