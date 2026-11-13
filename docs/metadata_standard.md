@@ -1,12 +1,14 @@
 # Track Tamer video metadata standard
 
-**Schema 1 (draft, 2026-11-06).** The trial information that any app
+**Schema 1, final (2026-11-12; a draft from 2026-11-06 until the user
+finalized it).** The trial information that any app
 recording videos for Track Tamer saves beside its videos, so Track Tamer can
 fill it in automatically (ROADMAP §16). **Track Tamer owns this standard**:
 apps that generate video follow it, and changes are made here first, then in
-the apps. It stays a draft until the user says otherwise; while it's a draft,
-changes don't raise `schema_version`. Track Tamer reads it, and adds its own
-part to the same file (built 2026-11-11; section 1).
+the apps. Now that it is final, the rules in section 7 apply: an optional
+field can be added without a new version; renaming or removing a field, or
+changing what one means, makes it schema 2. Track Tamer reads it, and adds
+its own part to the same file (built 2026-11-11; section 1).
 
 Apps covered so far: **Creature Capture**, **Boom Box** and **Pellet
 Paparazzi** (see "Apps" at the end). Apps whose videos Track Tamer doesn't
@@ -46,9 +48,10 @@ A column is never left out: it's blank when the app has nothing for it.
 - These are Creature Capture's log columns as it already wrote them.
   **No `room` and no `app_name` column** (user, 2026-11-11: not wanted;
   they stay in the JSON for an app that has them).
-- Track Tamer's own tables use the same words. Its Summary row carries
-  `animal_id` after File; the rest about the animal and the task is listed
-  on its workbook's Experiment sheet.
+- Track Tamer's own tables use the same words. Every test's Data Summary
+  row carries `animal_id`, `trial_day` and `session_number` after File
+  (blank when the info file doesn't say; never left out); the rest about
+  the animal and the task is listed on its workbook's Experiment sheet.
 
 **Track Tamer adds to the info file.** When it tracks or exports a video it
 adds an object named `track_tamer` to that video's entry in `cameras`
@@ -63,7 +66,8 @@ Track Tamer's part and one of: a copy of an info file the experimenter
 pointed to (its one `cameras` entry matched to this video; `app_name` stays
 the recording app's), or the animal's information typed into Track Tamer
 as the standard's fields (`animal_id`, `sex`, `strain`, `dob`, `treatment`,
-`cohort`, `date`, `start_time`, `experimenter`, `trial_day`, `notes`), with
+`cohort`, `date`, `start_time`, `experimenter`, `trial_day`,
+`session_number`, `notes`), with
 `app_name` `Track Tamer`, or neither. Such a file has no `assay`: the test
 is the one the video is tracked as (`track_tamer.test`).
 
@@ -124,8 +128,8 @@ entry (per-camera app fields go there), since its setup is per video:
 |---|---|
 | `version`, `saved` | the Track Tamer version and when it last tracked the video |
 | `test` | the test the video was tracked as |
-| `setup` | the session (start frame, end frame, length), crop, exclusion shapes, regions, scale points and length, objects and their types, typed stimulus frames; shapes in full-size video pixels, with the frame size they were drawn on |
-| `tracking` | what the tracking file would otherwise repeat on every row: the video's name, every tracking setting, the scale, and the region outlines as tracked. For startle: the threshold, start frame, crop, frame rate, pixels analyzed, where the stimuli came from, and the stimulus frames if they were typed in (stimuli from the recording app are read from `stimuli`, not copied) |
+| `setup` | the session (start frame, end frame, length), crop, exclusion shapes, regions, scale points and length, objects and their types, stimulus frames typed in Track Tamer 0.9.4 or earlier (there is no step to type them now); shapes in full-size video pixels, with the frame size they were drawn on. A startle setup has the session and trial day only (and stimulus frames typed in 0.9.4 or earlier): startle is measured on the whole frame, with no crop or exclusions |
+| `tracking` | what the tracking file would otherwise repeat on every row: the video's name, every tracking setting, the scale, and the region outlines as tracked. For startle: the threshold, start frame, frame rate, pixels analyzed (and a crop or exclusion count only in files from Track Tamer 0.9.4 or earlier), where the stimuli came from, and the stimulus frames if they were typed in (stimuli from the recording app are read from `stimuli`, not copied) |
 | `analysis` | the analysis settings of the last export |
 | `files` | the names of the files Track Tamer made beside the video (tracking file, reference image, workbook, plots) |
 
@@ -194,16 +198,18 @@ case and spaces at the ends.
 | `Elevated Plus Maze` | built | | |
 | `Open Field` | built | | |
 | `Object Recognition` | built | `Novel Object Recognition`, `Spatial Object Recognition` | `Habituation`, `Training`, `Test` |
-| `Acoustic Startle Response` | planned (ROADMAP §13) | `Prepulse Inhibition`, `Startle Habituation` | |
+| `Acoustic Startle Response` | built (ROADMAP §13) | `Prepulse Inhibition`, `Startle Habituation` | |
 | `Conditioned Place Preference` | planned | | `Pretest`, `Conditioning`, `Test` |
 | `Puzzle Box` | not analyzed in Track Tamer for now (listed for consistency) | | |
-| `Skilled Reaching` | not analyzed in Track Tamer (listed for consistency) | | |
+| `Skilled Reaching` | not analyzed in Track Tamer (listed for consistency) | | `Training`, `Test` |
 
 Variants of one assay share Track Tamer's analysis: an object trial is
 analyzed the same way whichever variant it is (the user marks each object
-Familiar, Novel or Moved when drawing it). The variant is recorded in the
-Summary, so trials can be told apart, which matters in Habituation and
-Training, when every object is familiar.
+Familiar, Novel or Moved when drawing it). The variant is listed on the
+Experiment sheet, so trials can be told apart, which matters in Habituation
+and Training, when every object is familiar. For startle the variant also
+decides what is worked out: short-term habituation only for `Startle
+Habituation`.
 
 New assays, variants and phases are added to this table as Track Tamer
 analyzes them, or when a lab app records them (so the names stay the same
@@ -223,47 +229,51 @@ Numbers are JSON numbers; yes/no values are `true`/`false`. Frames are
 counted from **0**, the same as the frames in the video file.
 
 ### Trial and animal
-| Field | Type | What it is | Track Tamer uses it to |
+"Where Track Tamer puts it" is the same for every test: a field is never
+handled for one test only (user, 2026-11-12). The Experiment sheet (and the
+Experiment tab) lists every field below, blank when the app didn't write it.
+
+| Field | Type | What it is | Where Track Tamer puts it, and what it uses it for |
 |---|---|---|---|
-| `schema_version` | number | `1` | read the file correctly |
+| `schema_version` | number | `1` | Settings sheet; read the file correctly (warns if newer than it knows) |
 | `app_name`, `app_version` | text | the app that wrote it | Settings sheet |
-| `date` | `YYYY-MM-DD` | trial date, from the recording computer's clock | Summary column |
-| `start_time` | `HH:MM:SS` | start time, from the recording computer's clock | Summary column |
-| `assay` | text | from section 3 | **set the test type** |
-| `assay_variant` | text | from section 3's list for that assay (left out if it has none) | Summary column |
-| `phase` | text | from section 3's list for that assay | Summary column; Object Recognition phase |
-| `arena` | text | arena name (as in the file name) | Summary column; draft crop, scale and regions from that arena's last video |
-| `room` | text | room or rig | Summary column |
-| `experimenter` | text | who ran it | Summary column |
-| `cohort` | text | **Cohort / litter** (label it that way on screen; the field name stays `cohort`) | Summary column |
-| `animal_id` | text | animal ID | **Summary column** |
-| `sex` | text | `F`, `M`, or `U` (unknown or not recorded) | Summary column |
-| `strain` | text | strain or genotype | Summary column |
-| `dob` | `YYYY-MM-DD` | date of birth | age on the test day |
-| `treatment` | text | treatment or group (a blinded code is fine) | **Summary column for comparing groups** |
-| `trial_day` | number | day of a multi-day trial (1, 2, …) | Summary column; Object Recognition trial day |
-| `session_number` | number | which session that day, when there's more than one in a day (1, 2, …) | Summary column |
-| `notes` | text | | export |
-| `duration_set_min` | number | length chosen, in minutes | **set the session length** |
-| `duration_actual_s` | number | length actually recorded, in seconds | warn if shorter than the session length |
-| `stopped_early` | true/false | | warn |
+| `date` | `YYYY-MM-DD` | trial date, from the recording computer's clock | Experiment sheet; the age on the test day |
+| `start_time` | `HH:MM:SS` | start time, from the recording computer's clock | Experiment sheet |
+| `assay` | text | from section 3 | Experiment sheet; **sets the test type** |
+| `assay_variant` | text | from section 3's list for that assay (left out if it has none) | Experiment sheet; startle: short-term habituation only for `Startle Habituation` |
+| `phase` | text | from section 3's list for that assay | Experiment sheet; Object Recognition phase |
+| `arena` | text | arena name (as in the file name) | Experiment sheet; draft crop, scale and regions from that arena's last video |
+| `room` | text | room or rig | not shown (user, 2026-11-11: not wanted in Track Tamer's tables); it stays in the info file |
+| `experimenter` | text | who ran it | Experiment sheet |
+| `cohort` | text | **Cohort / litter** (label it that way on screen; the field name stays `cohort`) | Experiment sheet |
+| `animal_id` | text | animal ID | **Data Summary column** (after File); Experiment sheet |
+| `sex` | text | `F`, `M`, or `U` (unknown or not recorded) | Experiment sheet |
+| `strain` | text | strain or genotype | Experiment sheet |
+| `dob` | `YYYY-MM-DD` | date of birth | Experiment sheet, with the age on the test day |
+| `treatment` | text | treatment or group (a blinded code is fine) | Experiment sheet |
+| `trial_day` | number | day of a multi-day trial (1, 2, …) | **Data Summary column** (after `animal_id`); Experiment sheet; kept in Track Tamer's saved setup. In Object Recognition the experimenter can correct it in Track Tamer, and the corrected day is the one shown |
+| `session_number` | number | which session that day, when there's more than one in a day (1, 2, …) | **Data Summary column** (after `trial_day`); Experiment sheet |
+| `notes` | text | | Experiment sheet |
+| `duration_set_min` | number | length chosen, in minutes | Experiment sheet; **sets the session length** (not for startle, which takes the whole video) |
+| `duration_actual_s` | number | length actually recorded, in seconds | Experiment sheet; warns if shorter than the session length |
+| `stopped_early` | true/false | | Experiment sheet; warns |
 
 ### `cameras`: one entry per camera in this arena
-| Field | Type | What it is | Track Tamer uses it to |
+| Field | Type | What it is | Where Track Tamer puts it, and what it uses it for |
 |---|---|---|---|
 | `label` | text | camera label (as in the video name) | Settings sheet |
 | `camera_position` | text | where the camera is (the app's camera position or slot, e.g. `Camera5`) | Settings sheet |
-| `camera_settings` | object | **every** setting used, whether changed or not, including the video `encoder` (e.g. `{"encoder": "libx264", "exposure": {"apply": true, "value": -5}, …}`) | Settings sheet |
-| `video` | text | the video's file name | **match the video** |
-| `timestamps_csv` | text | its `_frames.csv` file name | **the frame times (the record of timing)** |
+| `camera_settings` | object | **every** setting used, whether changed or not, including the video `encoder` (e.g. `{"encoder": "libx264", "exposure": {"apply": true, "value": -5}, …}`) | Settings sheet, one row per setting |
+| `video` | text | the video's file name | **matches the video**; the File column |
+| `timestamps_csv` | text | its `_frames.csv` file name | Settings sheet; **the frame times (the record of timing)** |
 | `fps_set` | number | frame rate asked for | Settings sheet |
-| `fps_measured` | number | frames ÷ recorded seconds, from the frame times | check |
-| `width_px`, `height_px` | number | frame size | check |
-| `frames` | number | frames written (including repeats) | check the video is complete |
-| `verified_frames_in_file` | number | frames counted in the finished file | check (should equal `frames`) |
-| `repeated_frames` | number | frames repeated to keep timing | Summary column |
-| `repeated_frame_indices` | list of numbers | which frames, from 0 | kept for timing, left out of speed peaks |
-| `error` | text | error message (left out if none) | warn |
+| `fps_measured` | number | frames ÷ recorded seconds, from the frame times | Settings sheet; offered as the frame rate; checked against the video's |
+| `width_px`, `height_px` | number | frame size | checked against the video's (a warning if they differ); not listed |
+| `frames` | number | frames written (including repeats) | Settings sheet; checks the video is complete |
+| `verified_frames_in_file` | number | frames counted in the finished file | checked against `frames` (a warning if they differ); not listed |
+| `repeated_frames` | number | frames repeated to keep timing | Data Summary (`RepeatedFrames`); warns above the set share |
+| `repeated_frame_indices` | list of numbers | which frames, from 0 | marked per frame; speed is worked out across them; left out of startle peaks |
+| `error` | text | error message (left out if none) | warns; Settings sheet |
 
 ### `_frames.csv`
 One row per video frame: `frame` (from 0), `video_time_s`, `repeated`
@@ -326,12 +336,20 @@ confined to in a conditioning session).
 ## 7. Changing the standard
 
 - Track Tamer owns this file. Changes are agreed here, then made in the apps.
-- While the standard is a draft, changes don't raise `schema_version`.
-- After that: **adding** an optional field doesn't change `schema_version`;
-  **renaming, removing, or changing the meaning** of a field raises it by 1,
-  and Track Tamer keeps reading every earlier version.
+- **Schema 1 is final (user, 2026-11-12).** While it was a draft
+  (2026-11-06 to 2026-11-12), changes didn't raise `schema_version`.
+- From now on: **adding** an optional field, or a name to an assay's list of
+  variants or phases, or a new assay, doesn't change `schema_version`;
+  **renaming, removing, or changing the meaning** of a field (or of a listed
+  name) raises it by 1, and Track Tamer keeps reading every earlier version.
+- A field an app doesn't use stays in the standard, unwritten (for example
+  `room`, which no lab app needs today): leaving a field out of a file is
+  always allowed, so nothing has to be removed for it.
 
 ### Changes
+- **Schema 1, final (2026-11-12):** the user finalized the standard as it
+  stood that day. Nothing changed in the fields; the entries below are how
+  the draft got there.
 - **Schema 1 (draft, 2026-11-06):** first version, built from Creature
   Capture's `_info.json`. Revised the same day: assay, variant and phase
   each from a fixed list per assay (`Object Recognition` with variants
@@ -352,6 +370,19 @@ confined to in a conditioning session).
 - **Schema 1 (draft, 2026-11-10):** `Fear Conditioning` removed from the
   assay list (user: it won't be captured). An info file that still says it
   is treated like any assay not on the list.
+- **Schema 1 (draft, 2026-11-12):** `Skilled Reaching` gets the phases
+  `Training` and `Test` (asked for by Pellet Paparazzi, passing on the
+  user's words: "the skilled reaching should list out training and testing
+  for the phase"; this replaces the 2026-11-06 choice not to list them). The
+  second is spelled `Test`, as Object Recognition's is (user, the same day:
+  "use test for skilled reaching so that it is the same"). It has no
+  variants; the day number goes in `trial_day`.
+- **Schema 1 (draft, 2026-11-12):** no field changed. Section 4 now says
+  where Track Tamer puts each field as it is built (its column had still
+  said "Summary column" for fields that moved to the Experiment sheet on
+  2026-11-11). `trial_day` and `session_number` are Data Summary columns in
+  every test, and `session_number` can be typed for a video with no info
+  file.
 - **Schema 1 (draft, 2026-11-10):** `Puzzle Box` added to the assay list
   (user). It has trial days and several sessions on each day, so its files
   carry `trial_day` and `session_number`; no variant or phase.
@@ -366,7 +397,9 @@ one `_frames.csv` per camera, and a row in its running log
 (`<folder>_log.csv`). Up to 0.2.0 it also wrote a per-trial `_info.csv`;
 it was asked to stop on 2026-11-11 (section 1).
 
-**Matches the revised schema 1 draft** (reported by Creature Capture,
+**Matches schema 1** (its writer was checked against the standard field by
+field on 2026-11-12, the day it was finalized; first reported by Creature
+Capture,
 2026-11-06; committed and pushed, confirmed 2026-11-10). Its `fps_measured`
 is measured from the recording clock: (frames - 1) / (last tick - first
 tick). Its assay list is the section 3 list without `Skilled Reaching`,
@@ -405,7 +438,9 @@ Acoustic startle recording. `assay` = `Acoustic Startle Response` (variants
 (github.com/vtbrak/BoomBox), describing Boom Box 1.3.4 (reported by Boom Box,
 2026-11-11; still schema 1, nothing removed or renamed since 1.3.3).
 
-**Matches schema 1 (draft).** What Track Tamer needs to know from the guide:
+**Matches schema 1** (its writer was checked against the standard field by
+field on 2026-11-12, the day it was finalized). What Track Tamer needs to
+know from the guide:
 - **Stimuli.** Since Boom Box 1.2 each `stimuli` entry with a pulse carries
   `pulse_stimulus` (`tone` or `noise`) and `pulse_freq_hz` (left out for
   noise). Sessions recorded with 1.1 don't; Track Tamer then reads them from
@@ -469,12 +504,33 @@ Acoustic startle recording. `assay` = `Acoustic Startle Response` (variants
   it, so Track Tamer's `track_tamer` object is safe there.
 - **Tested on the lab's equipment** (user, 2026-11-11): the app runs and
   captures video there. **Not yet run with mice.**
+- **Trial day and session.** A startle test runs over several days, and
+  Boom Box writes `trial_day` and `session_number` for every session.
+  Track Tamer puts both in the session's Data Summary row after
+  `animal_id`, as for every test (user, 2026-11-12; section 4); the days
+  are put together outside the app.
+- **Video keyframes (reported by Boom Box, 2026-11-12, after Track Tamer's
+  check of a 1.3.7 session).** Up to 1.3.8 the video has a keyframe every
+  250 frames, and at a low intensity threshold that frame looks like motion
+  (about 1.4% of pixels at threshold 5; 0.03 to 0.04% at 15). **From 1.3.9
+  the video is recorded without them**: `camera_settings.encoder_params` is
+  `intra-refresh=1` (the field is absent in older sessions). For older
+  videos Boom Box suggests leaving out frames whose number is a multiple of
+  250, or a higher threshold. Track Tamer doesn't leave them out today
+  (ROADMAP §13; to be looked at again once a session with a mouse is seen).
+  Also from that report: gaps of about 66 ms roughly every 100 frames come
+  from the camera and macOS, not from Boom Box; the late frames Boom Box
+  itself caused are fixed in 1.3.9; and a repeated frame's row in
+  `_frames.csv` now carries the time of the frame it copies (before, it
+  could be a few ms earlier than the frame before it).
 
 ### Pellet Paparazzi
 Skilled reaching recording. **Not analyzed in Track Tamer** (the task and
 its analysis are different); it follows this standard where the fields
 apply, so its data files match the rest of the lab's. `assay` =
-`Skilled Reaching`. App-only fields in `pellet_paparazzi`. Its fields will
-be listed here once its info file is written.
+`Skilled Reaching`, no variant, `phase` `Training` or `Test`, with the
+day number in `trial_day` (e.g. phase `Training`, `trial_day` 3). App-only
+fields in `pellet_paparazzi`. Its fields will be listed here once its info
+file is written.
 
 <!-- Add a section here for each new app as it's brought in. -->

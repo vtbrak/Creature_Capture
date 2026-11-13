@@ -45,8 +45,10 @@ under GitHub Actions (downloads last 30 days, named
 
 ## Phase 2: Settle the handoff with Track Tamer
 
-The metadata standard (`docs/metadata_standard.md`, owned by Track Tamer) is still a
-draft, and Track Tamer plans to read these files only after its own 1.0.
+The metadata standard (`docs/metadata_standard.md`, owned by Track Tamer) is final:
+schema 1, finalized 2026-11-12. Optional fields, assays, variants and phases can still
+be added; renaming or removing a field, or changing what one means, makes it schema 2,
+so raise any such change with Track Tamer first.
 
 - [ ] Test Track Tamer against real Creature Capture output and fix whatever doesn't
       line up.
@@ -58,7 +60,8 @@ draft, and Track Tamer plans to read these files only after its own 1.0.
       The count is always right and `_frames.csv` always has the full list.
 - [ ] Decide: keep Acoustic Startle Response in the Assay type list? The standard
       says the Boom Box app records it.
-- [ ] Take the standard out of draft.
+- [x] Take the standard out of draft (schema 1 final, 2026-11-12; nothing Creature
+      Capture writes had to change).
 
 ## Phase 3: Release
 
